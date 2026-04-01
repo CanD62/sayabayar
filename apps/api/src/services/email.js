@@ -19,7 +19,7 @@ function getTransporter() {
     // 'name' dipakai sebagai EHLO hostname saat connect ke Mailcow.
     // Tanpa ini, Nodemailer fallback ke hostname OS (127.0.0.1) yang
     // menyebabkan helo=<127.0.0.1> di log dan berpotensi dianggap spam.
-    name: process.env.SMTP_EHLO_NAME || new URL(process.env.SMTP_FROM?.match(/<(.+)>/)?.[1] || 'admin@sayabayar.com').hostname,
+    name: process.env.SMTP_EHLO_NAME || process.env.SMTP_USER?.split('@')[1] || 'sayabayar.com',
     auth: {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS
