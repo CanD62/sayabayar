@@ -26,9 +26,9 @@ steps:
         - REGISTRY_PASS
         - ENV_PRODUCTION
       script: |
-        # ════════════════════════════════════════════════════════
+        # ========================================================
         # Config
-        # ════════════════════════════════════════════════════════
+        # ========================================================
         PROJECT_NAME="sayabayar"
         ROOT_DIR="apps"
         APP_DIR="/home/$USER/$ROOT_DIR/$PROJECT_NAME"
@@ -42,33 +42,33 @@ steps:
         API_PORT="3010"
         SHORT_SHA="${DRONE_COMMIT_SHA:0:7}"
 
-        echo "👤 USER             : $USER"
-        echo "✅ Project          : $PROJECT_NAME"
-        echo "🌿 Branch           : ${DRONE_BRANCH}"
-        echo "🔑 Commit SHA       : $SHORT_SHA"
-        echo "🌐 Frontend Port    : $FRONTEND_PORT"
-        echo "🌐 API Port         : $API_PORT"
-        echo "======================================="
+        echo "USER             : $USER"
+        echo "Project          : $PROJECT_NAME"
+        echo "Branch           : ${DRONE_BRANCH}"
+        echo "Commit SHA       : $SHORT_SHA"
+        echo "Frontend Port    : $FRONTEND_PORT"
+        echo "API Port         : $API_PORT"
+        echo "========================================="
 
-        # ════════════════════════════════════════════════════════
-        # Clone / Pull Repo
-        # ════════════════════════════════════════════════════════
+        # ========================================================
+        # Clone atau Pull Repo
+        # ========================================================
         mkdir -p /home/$USER/$ROOT_DIR
         cd /home/$USER/$ROOT_DIR
 
-        echo "🛡️ Menambahkan github.com ke known_hosts..."
+        echo "Menambahkan github.com ke known_hosts..."
         ssh-keyscan github.com >> ~/.ssh/known_hosts
 
         if [ ! -d "$PROJECT_NAME/.git" ]; then
-          echo "🧩 Repository belum ada, clone dari GitHub..."
+          echo "Repository belum ada, clone dari GitHub..."
           if [ -d "$PROJECT_NAME" ]; then
-            echo "⚠️ Folder $PROJECT_NAME ada tapi bukan repo Git. Hapus dulu..."
+            echo "Folder $PROJECT_NAME ada tapi bukan repo Git. Hapus dulu..."
             chown -R $(id -u):$(id -g) "$PROJECT_NAME" 2>/dev/null || true
             rm -rf "$PROJECT_NAME"
           fi
           git clone $GITHUB_REPO
         else
-          echo "🔄 Pull repository terbaru..."
+          echo "Pull repository terbaru..."
           cd $PROJECT_NAME
           git fetch --all
           git reset --hard origin/main
@@ -76,60 +76,60 @@ steps:
 
         cd $APP_DIR
 
-        # ════════════════════════════════════════════════════════
-        # Write .env dari Drone secret
-        # ════════════════════════════════════════════════════════
-        echo "📝 Menulis .env dari secret ENV_PRODUCTION..."
-
-        # Tulis full .env — dengan comment, untuk referensi
+        # ========================================================
+        # Write .env dari Drone secret ENV_PRODUCTION
+        # ========================================================
+        echo "Menulis .env dari secret..."
         echo "$ENV_PRODUCTION" > .env
         chmod 600 .env
 
-        # Tulis .env.docker — tanpa comment dan baris kosong, untuk --env-file Docker
-        # Docker --env-file tidak support baris yang diawali tanda pagar atau baris kosong
+        # Buat .env.docker tanpa baris komentar dan baris kosong
+        # Docker --env-file tidak support baris komentar atau baris kosong
         grep -v '^#' .env | grep -v '^[[:space:]]*$' > .env.docker
         chmod 600 .env.docker
-        echo "✅ File .env berhasil ditulis"
+        echo "File .env berhasil ditulis"
 
-        # Extract vars untuk prisma generate dan frontend build
+        # Ambil nilai untuk prisma generate dan frontend build
         DATABASE_URL=$(grep "^DATABASE_URL=" .env | cut -d'=' -f2-)
         NEXT_PUBLIC_API_URL=$(grep "^API_URL=" .env | cut -d'=' -f2-)
         CF_SITE_KEY=$(grep "^NEXT_PUBLIC_CF_TURNSTILE_SITE_KEY=" .env | cut -d'=' -f2-)
 
-        # ════════════════════════════════════════════════════════
-        # Install Dependencies — pnpm di seluruh monorepo
-        # ════════════════════════════════════════════════════════
-        echo "📦 Install dependencies (pnpm workspace)..."
+        # ========================================================
+        # Install Dependencies via pnpm workspace
+        # ========================================================
+        echo "Install dependencies pnpm workspace..."
         docker run --rm \
           -v $(pwd):/app \
           -w /app \
           $NODE_IMAGE \
           sh -c "npm install -g pnpm --quiet && pnpm config set store-dir /app/.pnpm-store && pnpm install --frozen-lockfile"
 
-        # ════════════════════════════════════════════════════════
+        # ========================================================
         # Prisma Generate
-        # ════════════════════════════════════════════════════════
-        echo "🗄️ Prisma generate..."
+        # Jalankan dari packages/shared agar schema.prisma ditemukan otomatis
+        # dan binary prisma tersedia di node_modules/.bin/prisma milik shared
+        # ========================================================
+        echo "Prisma generate..."
         docker run --rm \
           -v $(pwd):/app \
-          -w /app \
+          -w /app/packages/shared \
           -e DATABASE_URL="$DATABASE_URL" \
           $NODE_IMAGE \
-          sh -c "node_modules/.bin/prisma generate --schema=packages/shared/prisma/schema.prisma"
+          sh -c "node_modules/.bin/prisma generate"
 
-        # ════════════════════════════════════════════════════════
-        # Registry Login & Pull Base Images
-        # ════════════════════════════════════════════════════════
-        echo "🔐 Login ke Docker registry..."
+        # ========================================================
+        # Login Registry dan Pull Base Images
+        # ========================================================
+        echo "Login ke Docker registry..."
         echo $REGISTRY_PASS | docker login registry.pcs.my.id -u $REGISTRY_USER --password-stdin
 
-        echo "📥 Pull Playwright base image..."
+        echo "Pull Playwright base image..."
         docker pull $PLAYWRIGHT_IMAGE
 
-        # ════════════════════════════════════════════════════════
-        # Deploy API — Fastify, Volume Mount
-        # ════════════════════════════════════════════════════════
-        echo "🚀 Deploy API (Fastify)..."
+        # ========================================================
+        # Deploy API - Fastify, volume mount
+        # ========================================================
+        echo "Deploy API Fastify..."
         docker stop sayabayar_api || true
         docker rm sayabayar_api || true
 
@@ -143,12 +143,12 @@ steps:
           $NODE_IMAGE \
           node src/index.js
 
-        echo "✅ API container berjalan di port $API_PORT"
+        echo "API container berjalan di port $API_PORT"
 
-        # ════════════════════════════════════════════════════════
-        # Deploy Scraper — Playwright, Volume Mount
-        # ════════════════════════════════════════════════════════
-        echo "🕷️ Deploy Scraper (Playwright)..."
+        # ========================================================
+        # Deploy Scraper - Playwright, volume mount
+        # ========================================================
+        echo "Deploy Scraper Playwright..."
         docker stop sayabayar_scraper || true
         docker rm sayabayar_scraper || true
 
@@ -161,14 +161,14 @@ steps:
           $PLAYWRIGHT_IMAGE \
           node src/index.js
 
-        echo "✅ Scraper container berjalan"
+        echo "Scraper container berjalan"
 
-        # ════════════════════════════════════════════════════════
-        # Build dan Deploy Frontend — Next.js, Docker Image
-        # ════════════════════════════════════════════════════════
-        echo "🏗️ Build Frontend image (Next.js)..."
-        echo "   NEXT_PUBLIC_API_URL        : $NEXT_PUBLIC_API_URL"
-        echo "   NEXT_PUBLIC_CF_SITE_KEY    : $CF_SITE_KEY"
+        # ========================================================
+        # Build dan Deploy Frontend - Next.js, Docker image
+        # ========================================================
+        echo "Build Frontend image Next.js..."
+        echo "NEXT_PUBLIC_API_URL : $NEXT_PUBLIC_API_URL"
+        echo "CF_SITE_KEY         : $CF_SITE_KEY"
 
         docker build \
           -f apps/frontend/Dockerfile \
@@ -178,11 +178,11 @@ steps:
           -t $FRONTEND_IMAGE:$SHORT_SHA \
           apps/frontend
 
-        echo "📤 Push frontend image ke registry..."
+        echo "Push frontend image ke registry..."
         docker push $FRONTEND_IMAGE:latest
         docker push $FRONTEND_IMAGE:$SHORT_SHA
 
-        echo "🚀 Deploy Frontend container..."
+        echo "Deploy Frontend container..."
         docker stop sayabayar_web || true
         docker rm sayabayar_web || true
 
@@ -193,34 +193,34 @@ steps:
           --restart always \
           $FRONTEND_IMAGE:latest
 
-        echo "✅ Frontend container berjalan di port $FRONTEND_PORT"
+        echo "Frontend container berjalan di port $FRONTEND_PORT"
 
-        # ════════════════════════════════════════════════════════
-        # Health Check & Logs
-        # ════════════════════════════════════════════════════════
-        echo "⏳ Menunggu semua services ready (15 detik)..."
+        # ========================================================
+        # Health Check dan Logs
+        # ========================================================
+        echo "Menunggu semua services ready..."
         sleep 15
 
         echo ""
-        echo "🔍 Status semua containers:"
+        echo "Status semua containers:"
         docker ps --filter "name=sayabayar" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
 
         echo ""
-        echo "📋 Logs API (tail 20):"
+        echo "Logs API tail 20:"
         docker logs --tail 20 sayabayar_api
 
         echo ""
-        echo "📋 Logs Scraper (tail 10):"
+        echo "Logs Scraper tail 10:"
         docker logs --tail 10 sayabayar_scraper
 
         echo ""
-        echo "📋 Logs Frontend (tail 10):"
+        echo "Logs Frontend tail 10:"
         docker logs --tail 10 sayabayar_web
 
         echo ""
-        echo "✅ Deployment selesai!"
-        echo "🌐 Frontend : http://192.168.50.3:$FRONTEND_PORT"
-        echo "🌐 API      : http://192.168.50.3:$API_PORT"
+        echo "Deployment selesai!"
+        echo "Frontend : http://192.168.50.3:$FRONTEND_PORT"
+        echo "API      : http://192.168.50.3:$API_PORT"
 
 trigger:
   branch:

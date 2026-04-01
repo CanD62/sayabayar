@@ -4,10 +4,10 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 # Copy package files dulu (layer caching optimal)
-COPY package.json package-lock.json* ./
+COPY package.json ./
 
 # Install semua dependencies
-RUN npm install
+RUN npm install --no-package-lock
 
 # Copy seluruh source frontend
 COPY . ./
