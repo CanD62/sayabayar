@@ -16,6 +16,10 @@ function getTransporter() {
     host:   process.env.SMTP_HOST,
     port:   parseInt(process.env.SMTP_PORT || '587'),
     secure: parseInt(process.env.SMTP_PORT || '587') === 465,
+    // 'name' dipakai sebagai EHLO hostname saat connect ke Mailcow.
+    // Tanpa ini, Nodemailer fallback ke hostname OS (127.0.0.1) yang
+    // menyebabkan helo=<127.0.0.1> di log dan berpotensi dianggap spam.
+    name: process.env.SMTP_EHLO_NAME || new URL(process.env.SMTP_FROM?.match(/<(.+)>/)?.[1] || 'admin@sayabayar.com').hostname,
     auth: {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS
