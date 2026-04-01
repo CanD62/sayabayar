@@ -7,6 +7,17 @@ import nodemailer from 'nodemailer'
 
 let _transporter = null
 
+// Docker --env-file menyimpan literal quotes (berbeda dgn dotenv),
+// sehingga SMTP_FROM bisa terbaca sbg '"SayaBayar <admin@...>"' lengkap dgn kutip.
+// Strip kutip luar agar Nodemailer bisa parse alamat dengan benar.
+function getSenderFrom() {
+  const raw = process.env.SMTP_FROM || ''
+  const stripped = raw.replace(/^["']|["']$/g, '').trim()
+  // Jika SMTP_FROM valid (mengandung @), pakai itu; jika tidak, build dari SMTP_USER
+  if (stripped && stripped.includes('@')) return stripped
+  return `"SayaBayar" <${process.env.SMTP_USER}>`
+}
+
 function getTransporter() {
   if (_transporter) return _transporter
 
@@ -367,7 +378,7 @@ export async function sendVerificationEmail(email, name, token) {
   const { html, text } = buildVerificationEmail(name, verifyUrl)
 
   await getTransporter().sendMail({
-    from:    process.env.SMTP_FROM || `"SayaBayar" <${process.env.SMTP_USER}>`,
+    from:    getSenderFrom(),
     to:      email,
     subject: `Konfirmasi Email Anda — SayaBayar`,
     text,
@@ -386,7 +397,7 @@ export async function sendPasswordResetEmail(email, name, token) {
   const { html, text } = buildResetPasswordEmail(name, resetUrl)
 
   await getTransporter().sendMail({
-    from:    process.env.SMTP_FROM || `"SayaBayar" <${process.env.SMTP_USER}>`,
+    from:    getSenderFrom(),
     to:      email,
     subject: `Permintaan Reset Password — SayaBayar`,
     text,
