@@ -81,15 +81,15 @@ steps:
         # ════════════════════════════════════════════════════════
         echo "📝 Menulis .env dari secret ENV_PRODUCTION..."
 
-        # Tulis full .env (dengan comment, untuk referensi)
+        # Tulis full .env — dengan comment, untuk referensi
         echo "$ENV_PRODUCTION" > .env
         chmod 600 .env
 
-        # Tulis .env.docker (tanpa comment/baris kosong) untuk --env-file Docker
-        # Docker --env-file tidak support lines yang diawali '#' atau baris kosong
+        # Tulis .env.docker — tanpa comment dan baris kosong, untuk --env-file Docker
+        # Docker --env-file tidak support baris yang diawali tanda pagar atau baris kosong
         grep -v '^#' .env | grep -v '^[[:space:]]*$' > .env.docker
         chmod 600 .env.docker
-        echo "✅ File .env berhasil ditulis ($(wc -l < .env) baris, docker: $(wc -l < .env.docker) baris)"
+        echo "✅ File .env berhasil ditulis"
 
         # Extract vars untuk prisma generate dan frontend build
         DATABASE_URL=$(grep "^DATABASE_URL=" .env | cut -d'=' -f2-)
@@ -97,7 +97,7 @@ steps:
         CF_SITE_KEY=$(grep "^NEXT_PUBLIC_CF_TURNSTILE_SITE_KEY=" .env | cut -d'=' -f2-)
 
         # ════════════════════════════════════════════════════════
-        # Install Dependencies (pnpm di seluruh monorepo)
+        # Install Dependencies — pnpm di seluruh monorepo
         # ════════════════════════════════════════════════════════
         echo "📦 Install dependencies (pnpm workspace)..."
         docker run --rm \
@@ -127,7 +127,7 @@ steps:
         docker pull $PLAYWRIGHT_IMAGE
 
         # ════════════════════════════════════════════════════════
-        # Deploy API (Fastify) — Volume Mount
+        # Deploy API — Fastify, Volume Mount
         # ════════════════════════════════════════════════════════
         echo "🚀 Deploy API (Fastify)..."
         docker stop sayabayar_api || true
@@ -146,7 +146,7 @@ steps:
         echo "✅ API container berjalan di port $API_PORT"
 
         # ════════════════════════════════════════════════════════
-        # Deploy Scraper (Playwright) — Volume Mount
+        # Deploy Scraper — Playwright, Volume Mount
         # ════════════════════════════════════════════════════════
         echo "🕷️ Deploy Scraper (Playwright)..."
         docker stop sayabayar_scraper || true
@@ -164,7 +164,7 @@ steps:
         echo "✅ Scraper container berjalan"
 
         # ════════════════════════════════════════════════════════
-        # Build & Deploy Frontend (Next.js) — Docker Image
+        # Build dan Deploy Frontend — Next.js, Docker Image
         # ════════════════════════════════════════════════════════
         echo "🏗️ Build Frontend image (Next.js)..."
         echo "   NEXT_PUBLIC_API_URL        : $NEXT_PUBLIC_API_URL"
