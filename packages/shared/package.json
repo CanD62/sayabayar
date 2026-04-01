@@ -1,0 +1,29 @@
+{
+  "name": "@payment-gateway/shared",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./constants": "./src/constants/index.js",
+    "./crypto": "./src/crypto/index.js",
+    "./qris": "./src/qris/index.js",
+    "./db": "./src/db/index.js"
+  },
+  "scripts": {
+    "prisma:generate": "prisma generate --env-file ../../.env",
+    "prisma:migrate": "prisma migrate deploy --env-file ../../.env",
+    "prisma:migrate:dev": "prisma migrate dev --env-file ../../.env",
+    "prisma:push": "prisma db push --env-file ../../.env",
+    "prisma:studio": "prisma studio --env-file ../../.env"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.5.0"
+  },
+  "devDependencies": {
+    "prisma": "^6.5.0"
+  },
+  "prisma": {
+    "seed": "node prisma/seed.js"
+  }
+}

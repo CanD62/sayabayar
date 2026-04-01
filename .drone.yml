@@ -1,0 +1,190 @@
+kind: pipeline
+type: docker
+name: deploy-sayabayar
+
+clone:
+  disable: true
+
+steps:
+  - name: deploy to server
+    image: appleboy/drone-ssh
+    environment:
+      REGISTRY_USER:
+        from_secret: REGISTRY_USER
+      REGISTRY_PASS:
+        from_secret: REGISTRY_PASS
+      ENV_PRODUCTION:
+        from_secret: ENV_PRODUCTION
+    settings:
+      host: 192.168.50.3
+      username: debian
+      port: 22
+      key:
+        from_secret: SSH_KEY
+      envs:
+        - REGISTRY_USER
+        - REGISTRY_PASS
+        - ENV_PRODUCTION
+      script: |
+        # ── Variabel ──────────────────────────────────────────
+        PROJECT_NAME="sayabayar"
+        ROOT_DIR="apps"
+        GITHUB_REPO="git@github.com:CanD62/sayabayar.git"
+        BASE_IMAGE="registry.pcs.my.id/playwright:latest"
+        FRONTEND_IMAGE="registry.pcs.my.id/sayabayar-frontend"
+        SHORT_SHA="${DRONE_COMMIT_SHA:0:7}"
+        PROJECT_DIR="/home/$USER/$ROOT_DIR/$PROJECT_NAME"
+
+        echo "👤 USER        : $USER"
+        echo "✅ Project     : $PROJECT_NAME"
+        echo "🖼️  Base Image  : $BASE_IMAGE"
+        echo "🌿 Branch      : ${DRONE_BRANCH}"
+        echo "🔑 Commit SHA  : $SHORT_SHA"
+        echo "======================"
+
+        # ── Git: Clone atau Pull ──────────────────────────────
+        echo "🛡️ Menambahkan github.com ke known_hosts..."
+        ssh-keyscan github.com >> ~/.ssh/known_hosts
+
+        if [ ! -d "$PROJECT_DIR/.git" ]; then
+          echo "🧩 Repository belum ada, clone dari GitHub..."
+          if [ -d "$PROJECT_DIR" ]; then
+            echo "⚠️  Folder ada tapi bukan repo Git, hapus dulu..."
+            rm -rf "$PROJECT_DIR"
+          fi
+          git clone $GITHUB_REPO $PROJECT_DIR
+        else
+          echo "🔄 Pull repository..."
+          cd $PROJECT_DIR
+          git fetch --all
+          git reset --hard origin/main
+        fi
+
+        cd $PROJECT_DIR
+
+        # ── Deploy .env dari Drone Secret ─────────────────────
+        echo "📝 Menulis file .env dari Drone Secret..."
+        echo "$ENV_PRODUCTION" > .env
+        echo "✅ File .env berhasil ditulis"
+
+        # ── Validasi .env ─────────────────────────────────────
+        if [ ! -f ".env" ]; then
+          echo "❌ File .env tidak ditemukan di $PROJECT_DIR!"
+          echo "⚠️  Buat file .env terlebih dahulu di server sebelum deploy."
+          exit 1
+        fi
+
+        # ── Login ke Registry ─────────────────────────────────
+        echo "🔐 Login ke Docker registry..."
+        echo $REGISTRY_PASS | docker login registry.pcs.my.id -u $REGISTRY_USER --password-stdin
+
+        echo "📥 Pull base image terbaru..."
+        docker pull $BASE_IMAGE
+
+        # ── Install Dependencies (pnpm workspace) ─────────────
+        echo "📦 Install dependencies (pnpm)..."
+        docker run --rm \
+          -v $(pwd):/app \
+          -w /app \
+          --user $(id -u):$(id -g) \
+          $BASE_IMAGE \
+          sh -c "npm install -g pnpm@latest && pnpm install --frozen-lockfile"
+
+        # ── Generate Prisma Client ────────────────────────────
+        echo "🔧 Generate Prisma client..."
+        docker run --rm \
+          -v $(pwd):/app \
+          -w /app \
+          --env-file $(pwd)/.env \
+          $BASE_IMAGE \
+          sh -c "npm install -g pnpm@latest && pnpm db:generate"
+
+        # ── Deploy: API ───────────────────────────────────────
+        echo ""
+        echo "🚀 Deploy API..."
+        docker stop sayabayar_api || true
+        docker rm sayabayar_api || true
+
+        docker run -d --name sayabayar_api \
+          -p 3001:3001 \
+          -v $(pwd):/app \
+          -w /app/apps/api \
+          --env-file $(pwd)/.env \
+          -e TZ=Asia/Jakarta \
+          -e NODE_ENV=production \
+          --restart always \
+          $BASE_IMAGE \
+          node src/index.js
+
+        echo "✅ API running di port 3001"
+
+        # ── Deploy: Scraper ───────────────────────────────────
+        echo ""
+        echo "🚀 Deploy Scraper..."
+        docker stop sayabayar_scraper || true
+        docker rm sayabayar_scraper || true
+
+        docker run -d --name sayabayar_scraper \
+          -v $(pwd):/app \
+          -w /app/apps/scraper \
+          --env-file $(pwd)/.env \
+          -e TZ=Asia/Jakarta \
+          -e NODE_ENV=production \
+          --restart always \
+          $BASE_IMAGE \
+          node src/index.js
+
+        echo "✅ Scraper running"
+
+        # ── Build & Deploy: Frontend ──────────────────────────
+        echo ""
+        echo "🏗️  Build Frontend (Next.js)..."
+        docker build \
+          --build-arg NEXT_PUBLIC_API_URL=https://api.sayabayar.com \
+          --build-arg NEXT_PUBLIC_CF_TURNSTILE_SITE_KEY=$(grep NEXT_PUBLIC_CF_TURNSTILE_SITE_KEY .env | cut -d= -f2) \
+          -t $FRONTEND_IMAGE:latest \
+          -t $FRONTEND_IMAGE:$SHORT_SHA \
+          -f apps/frontend/Dockerfile \
+          apps/frontend/
+
+        echo "📤 Push frontend image ke registry..."
+        docker push $FRONTEND_IMAGE:latest
+        docker push $FRONTEND_IMAGE:$SHORT_SHA
+
+        echo "🚀 Deploy Frontend..."
+        docker stop sayabayar_frontend || true
+        docker rm sayabayar_frontend || true
+
+        docker run -d --name sayabayar_frontend \
+          -p 3000:3000 \
+          -e TZ=Asia/Jakarta \
+          -e NODE_ENV=production \
+          --restart always \
+          $FRONTEND_IMAGE:latest
+
+        echo "✅ Frontend running di port 3000"
+
+        # ── Health Check ──────────────────────────────────────
+        echo ""
+        echo "⏳ Tunggu services siap (10s)..."
+        sleep 10
+
+        echo "🔍 Status containers:"
+        docker ps | grep -E "sayabayar_api|sayabayar_scraper|sayabayar_frontend" || true
+
+        echo ""
+        echo "📋 Logs API (5 baris terakhir):"
+        docker logs --tail 5 sayabayar_api || true
+
+        echo ""
+        echo "✅ ================================"
+        echo "✅ Deploy selesai! Commit: $SHORT_SHA"
+        echo "🌐 API      : http://192.168.50.3:3001"
+        echo "🌐 Frontend : http://192.168.50.3:3000"
+        echo "✅ ================================"
+
+trigger:
+  branch:
+    - main
+  event:
+    - push

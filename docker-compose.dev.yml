@@ -1,0 +1,27 @@
+# Development override — hot reload untuk semua services
+# Jalankan: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+services:
+
+  api:
+    volumes:
+      - ./apps/api/src:/app/apps/api/src
+      - ./packages/shared/src:/app/packages/shared/src
+    environment:
+      - NODE_ENV=development
+    command: ["node", "--watch", "apps/api/src/index.js"]
+
+  scraper:
+    volumes:
+      - ./apps/scraper/src:/app/apps/scraper/src
+      - ./packages/shared/src:/app/packages/shared/src
+    environment:
+      - NODE_ENV=development
+    command: ["node", "--watch", "apps/scraper/src/index.js"]
+
+  frontend:
+    volumes:
+      - ./apps/frontend/src:/app/apps/frontend/src
+    environment:
+      - NODE_ENV=development
+    command: ["pnpm", "--filter", "frontend", "dev"]

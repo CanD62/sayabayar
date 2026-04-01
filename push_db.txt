@@ -1,0 +1,2 @@
+Push schema: cd packages/shared && npx prisma db push
+Seed data: cd packages/shared && npx prisma db seed

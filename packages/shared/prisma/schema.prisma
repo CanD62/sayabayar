@@ -1,0 +1,420 @@
+// Prisma Schema — Payment Gateway Platform
+// Provider: mysql (MariaDB compatible)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── CLIENTS ──────────────────────────────────────────────
+
+model Client {
+  id           String   @id @default(uuid()) @db.Char(36)
+  name         String   @db.VarChar(100)
+  email        String   @unique @db.VarChar(100)
+  passwordHash String?  @map("password_hash") @db.VarChar(255)
+  phone        String?  @db.VarChar(20)
+  googleId       String?  @unique @map("google_id") @db.VarChar(100)
+  authProvider   String   @default("email") @map("auth_provider") @db.VarChar(20)
+  avatarUrl      String?  @map("avatar_url") @db.VarChar(500)
+  emailVerified  Boolean  @default(false) @map("email_verified")
+  status         ClientStatus @default(active)
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  apiKeys             ApiKey[]
+  subscriptions       ClientSubscription[]
+  paymentChannels     PaymentChannel[]
+  invoices            Invoice[]
+  balance             ClientBalance?
+  balanceLedgerEntries BalanceLedger[]
+  withdrawals         Withdrawal[]
+  webhookEndpoints    WebhookEndpoint[]
+
+  @@map("clients")
+}
+
+enum ClientStatus {
+  active
+  suspended
+  inactive
+}
+
+// ─── API KEYS ─────────────────────────────────────────────
+
+model ApiKey {
+  id         String    @id @default(uuid()) @db.Char(36)
+  clientId   String    @map("client_id") @db.Char(36)
+  keyHash    String    @unique @map("key_hash") @db.VarChar(64)
+  label      String?   @db.VarChar(100)
+  isActive   Boolean   @default(true) @map("is_active")
+  lastUsedAt DateTime? @map("last_used_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  client Client @relation(fields: [clientId], references: [id])
+
+  @@map("api_keys")
+}
+
+// ─── SUBSCRIPTION PLANS ───────────────────────────────────
+
+model SubscriptionPlan {
+  id               String   @id @default(uuid()) @db.Char(36)
+  name             String   @db.VarChar(100)
+  planType         PlanType @map("plan_type")
+  maxChannels      Int      @default(1) @map("max_channels")
+  monthlyPrice     Decimal  @default(0) @map("monthly_price") @db.Decimal(12, 2)
+  withdrawFee      Decimal  @default(0) @map("withdraw_fee") @db.Decimal(12, 2)
+  canAddOwnChannel Boolean  @default(false) @map("can_add_own_channel")
+  isActive         Boolean  @default(true) @map("is_active")
+
+  subscriptions ClientSubscription[]
+
+  @@map("subscription_plans")
+}
+
+enum PlanType {
+  free
+  subscription
+}
+
+// ─── CLIENT SUBSCRIPTIONS ─────────────────────────────────
+
+model ClientSubscription {
+  id                 String             @id @default(uuid()) @db.Char(36)
+  clientId           String             @map("client_id") @db.Char(36)
+  planId             String             @map("plan_id") @db.Char(36)
+  status             SubscriptionStatus @default(active)
+  currentPeriodStart DateTime           @map("current_period_start") @db.Date
+  currentPeriodEnd   DateTime           @map("current_period_end") @db.Date
+  createdAt          DateTime           @default(now()) @map("created_at")
+
+  client Client           @relation(fields: [clientId], references: [id])
+  plan   SubscriptionPlan @relation(fields: [planId], references: [id])
+
+  @@map("client_subscriptions")
+}
+
+enum SubscriptionStatus {
+  active
+  expired
+  cancelled
+}
+
+// ─── PAYMENT CHANNELS ─────────────────────────────────────
+
+model PaymentChannel {
+  id             String       @id @default(uuid()) @db.Char(36)
+  clientId       String       @map("client_id") @db.Char(36)
+  channelType    ChannelType  @map("channel_type")
+  channelOwner   ChannelOwner @map("channel_owner")
+  accountName    String       @map("account_name") @db.VarChar(100)
+  accountNumber  String       @map("account_number") @db.VarChar(50)
+  scrapingConfig String       @map("scraping_config") @db.Text // Encrypted JSON
+  qrisData       String?      @map("qris_data") @db.Text       // Raw QRIS TLV string
+  isActive       Boolean      @default(true) @map("is_active")
+  deletedAt      DateTime?    @map("deleted_at")
+  createdAt      DateTime     @default(now()) @map("created_at")
+
+  client       Client        @relation(fields: [clientId], references: [id])
+  channelState ChannelState?
+  invoices     Invoice[]
+  transactions Transaction[]
+
+  @@map("payment_channels")
+}
+
+enum ChannelType {
+  bca_transfer
+  qris_bca
+  qris_gopay
+}
+
+enum ChannelOwner {
+  platform
+  client
+}
+
+// ─── CHANNEL STATES ───────────────────────────────────────
+
+model ChannelState {
+  channelId         String        @id @map("channel_id") @db.Char(36)
+
+  // Circuit Breaker
+  circuitState      CircuitState  @default(closed) @map("circuit_state")
+  circuitOpenedAt   DateTime?     @map("circuit_opened_at")
+  consecutiveErrors Int           @default(0) @map("consecutive_errors")
+  lastErrorAt       DateTime?     @map("last_error_at")
+  lastErrorType     ErrorType?    @map("last_error_type")
+  lastErrorMessage  String?       @map("last_error_message") @db.Text
+
+  // Scraping State
+  lastScrapedAt     DateTime?     @map("last_scraped_at")
+  lastSuccessAt     DateTime?     @map("last_success_at")
+  scrapeCursor      String?       @map("scrape_cursor") @db.VarChar(255)
+  sessionData       String?       @map("session_data") @db.Text // Encrypted
+
+  // Scheduler
+  nextScrapeAt      DateTime?     @map("next_scrape_at")
+  scrapePriority    ScrapePriority @default(medium) @map("scrape_priority")
+
+  // Anomaly Detection
+  lastKnownBalance  Decimal?      @map("last_known_balance") @db.Decimal(15, 2)
+
+  updatedAt         DateTime      @updatedAt @map("updated_at")
+
+  channel PaymentChannel @relation(fields: [channelId], references: [id])
+
+  @@map("channel_states")
+}
+
+enum CircuitState {
+  closed
+  open
+  half_open
+}
+
+enum ErrorType {
+  fatal
+  transient
+  empty_result
+}
+
+enum ScrapePriority {
+  high
+  medium
+  low
+}
+
+// ─── INVOICES ─────────────────────────────────────────────
+
+model Invoice {
+  id                String        @id @default(uuid()) @db.Char(36)
+  clientId          String        @map("client_id") @db.Char(36)
+  paymentChannelId  String?       @map("payment_channel_id") @db.Char(36)
+  invoiceNumber     String        @unique @map("invoice_number") @db.VarChar(50)
+  customerName      String?       @map("customer_name") @db.VarChar(200)
+  customerEmail     String?       @map("customer_email") @db.VarChar(100)
+  amount            Decimal       @db.Decimal(15, 2)
+  uniqueCode        Int           @default(0) @map("unique_code") @db.SmallInt
+  amountUnique      Decimal       @map("amount_unique") @db.Decimal(15, 2)
+  uniqueCodeRevenue Decimal       @default(0) @map("unique_code_revenue") @db.Decimal(15, 2)
+  description       String?       @db.Text
+  status            InvoiceStatus @default(pending)
+  source            InvoiceSource
+  paymentUrl        String        @map("payment_url") @db.VarChar(500)
+  paymentToken      String        @unique @map("payment_token") @db.VarChar(32)
+  expiredAt         DateTime      @map("expired_at")
+  paidAt            DateTime?     @map("paid_at")
+  fee               Decimal       @default(0) @db.Decimal(15, 2)           // platform channel fee
+  confirmedAt       DateTime?     @map("confirmed_at")  // user clicked "Sudah Transfer"
+  channelPreference String        @default("platform") @map("channel_preference") @db.VarChar(20)
+  createdAt         DateTime      @default(now()) @map("created_at")
+
+  client         Client          @relation(fields: [clientId], references: [id])
+  paymentChannel PaymentChannel? @relation(fields: [paymentChannelId], references: [id])
+  transactions   Transaction[]
+  balanceLedger  BalanceLedger[]
+  webhookLogs    WebhookLog[]
+
+  @@index([status, expiredAt], name: "idx_status_expired")
+  @@index([paymentChannelId, status], name: "idx_channel_pending")
+  @@index([paymentChannelId, uniqueCode, status], name: "idx_channel_unique_code")
+  @@map("invoices")
+}
+
+enum InvoiceStatus {
+  pending
+  user_confirmed
+  paid
+  expired
+  cancelled
+}
+
+enum InvoiceSource {
+  dashboard
+  api
+}
+
+// ─── TRANSACTIONS ─────────────────────────────────────────
+
+model Transaction {
+  id                String      @id @default(uuid()) @db.Char(36)
+  invoiceId         String?     @map("invoice_id") @db.Char(36)
+  paymentChannelId  String      @map("payment_channel_id") @db.Char(36)
+  amount            Decimal     @db.Decimal(15, 2)
+  referenceNumber   String?     @map("reference_number") @db.VarChar(100)
+  uniqueHash        String      @unique @map("unique_hash") @db.VarChar(64)
+  rawData           String?     @map("raw_data") @db.Text
+  matchStatus       MatchStatus @default(unmatched) @map("match_status")
+  matchAttempt      Int         @default(0) @map("match_attempt")
+  lastMatchAttempt  DateTime?   @map("last_match_attempt")
+  detectedAt        DateTime    @default(now()) @map("detected_at")
+
+  invoice        Invoice?       @relation(fields: [invoiceId], references: [id])
+  paymentChannel PaymentChannel @relation(fields: [paymentChannelId], references: [id])
+
+  @@index([matchStatus, detectedAt], name: "idx_unmatched")
+  @@map("transactions")
+}
+
+enum MatchStatus {
+  matched
+  unmatched
+  duplicate
+  manual
+}
+
+// ─── CLIENT BALANCES ──────────────────────────────────────
+
+model ClientBalance {
+  clientId         String   @id @map("client_id") @db.Char(36)
+  balancePending   Decimal  @default(0) @map("balance_pending") @db.Decimal(15, 2)
+  balanceAvailable Decimal  @default(0) @map("balance_available") @db.Decimal(15, 2)
+  totalEarned      Decimal  @default(0) @map("total_earned") @db.Decimal(15, 2)
+  totalWithdrawn   Decimal  @default(0) @map("total_withdrawn") @db.Decimal(15, 2)
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  client Client @relation(fields: [clientId], references: [id])
+
+  @@map("client_balances")
+}
+
+// ─── BALANCE LEDGER ───────────────────────────────────────
+
+model BalanceLedger {
+  id           String           @id @default(uuid()) @db.Char(36)
+  clientId     String           @map("client_id") @db.Char(36)
+  invoiceId    String?          @map("invoice_id") @db.Char(36)
+  withdrawalId String?          @map("withdrawal_id") @db.Char(36)
+  type         BalanceLedgerType
+  amount       Decimal          @db.Decimal(15, 2)
+  availableAt  DateTime         @map("available_at")
+  settledAt    DateTime?        @map("settled_at")
+  note         String?          @db.VarChar(255)
+  createdAt    DateTime         @default(now()) @map("created_at")
+
+  client     Client      @relation(fields: [clientId], references: [id])
+  invoice    Invoice?    @relation(fields: [invoiceId], references: [id])
+  withdrawal Withdrawal? @relation(fields: [withdrawalId], references: [id])
+
+  @@index([clientId, type, availableAt], name: "idx_client_available")
+  @@map("balance_ledger")
+}
+
+enum BalanceLedgerType {
+  credit_pending
+  credit_available
+  debit_withdraw
+}
+
+// ─── WITHDRAWALS ──────────────────────────────────────────
+
+model Withdrawal {
+  id                 String           @id @default(uuid()) @db.Char(36)
+  clientId           String           @map("client_id") @db.Char(36)
+  amount             Decimal          @db.Decimal(15, 2)
+  fee                Decimal          @default(2500) @db.Decimal(12, 2)
+  amountReceived     Decimal          @map("amount_received") @db.Decimal(15, 2)
+  destinationBank    String           @map("destination_bank") @db.VarChar(50)
+  destinationAccount String           @map("destination_account") @db.VarChar(50)
+  destinationName    String           @map("destination_name") @db.VarChar(100)
+  status             WithdrawalStatus @default(pending)
+  rejectionReason    String?          @map("rejection_reason") @db.Text
+  retryCount         Int              @default(0) @map("retry_count")         // berapa kali sudah dicoba ke Flip
+  flipTrxId          String?          @map("flip_trx_id") @db.VarChar(100)   // ID transaksi dari Flip
+  requestedAt        DateTime         @default(now()) @map("requested_at")
+  processedAt        DateTime?        @map("processed_at")
+
+  client        Client          @relation(fields: [clientId], references: [id])
+  balanceLedger BalanceLedger[]
+
+  @@map("withdrawals")
+}
+
+enum WithdrawalStatus {
+  pending
+  processing  // worker sedang memproses via Flip
+  processed
+  failed      // Flip error sementara, bisa di-retry admin
+  rejected    // final — admin reject, saldo dikembalikan
+}
+
+// ─── WEBHOOK ENDPOINTS ────────────────────────────────────
+
+model WebhookEndpoint {
+  id               String   @id @default(uuid()) @db.Char(36)
+  clientId         String   @map("client_id") @db.Char(36)
+  url              String   @db.VarChar(500)
+  secretHash       String   @map("secret_hash") @db.VarChar(64)
+  secretEncrypted  String?  @map("secret_encrypted") @db.Text // AES-256-GCM encrypted raw secret
+  eventTypes       Json     @map("event_types") // ["invoice.paid", "invoice.expired"]
+  isActive         Boolean  @default(true) @map("is_active")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  client Client       @relation(fields: [clientId], references: [id])
+  logs   WebhookLog[]
+
+  @@map("webhook_endpoints")
+}
+
+// ─── WEBHOOK LOGS ─────────────────────────────────────────
+
+model WebhookLog {
+  id            String   @id @default(uuid()) @db.Char(36)
+  webhookId     String   @map("webhook_id") @db.Char(36)
+  invoiceId     String   @map("invoice_id") @db.Char(36)
+  httpStatus    Int?     @map("http_status")
+  responseBody  String?  @map("response_body") @db.Text
+  attemptNumber Int      @default(1) @map("attempt_number")
+  sentAt        DateTime @default(now()) @map("sent_at")
+
+  webhook WebhookEndpoint @relation(fields: [webhookId], references: [id])
+  invoice Invoice         @relation(fields: [invoiceId], references: [id])
+
+  @@map("webhook_logs")
+}
+
+// ─── SCRAPING LOGS ────────────────────────────────────────
+
+model ScrapingLog {
+  id           String          @id @default(uuid()) @db.Char(36)
+  channelId    String          @map("channel_id") @db.Char(36)
+  status       ScrapingStatus
+  errorType    String?         @map("error_type") @db.VarChar(100)
+  errorMessage String?         @map("error_message") @db.Text
+  txFound      Int             @default(0) @map("tx_found")
+  txNew        Int             @default(0) @map("tx_new")
+  durationMs   Int?            @map("duration_ms")
+  scrapedAt    DateTime        @default(now()) @map("scraped_at")
+
+  @@index([channelId, scrapedAt], name: "idx_channel_time")
+  @@map("scraping_logs")
+}
+
+enum ScrapingStatus {
+  success
+  transient
+  fatal
+}
+
+// ─── PAYMENT PROVIDER (Flip) ──────────────────────────────
+
+model PaymentProvider {
+  id             String    @id @default(uuid()) @db.Char(36)
+  providerName   String    @unique @map("provider_name") @db.VarChar(50) // "flip"
+  email          String    @db.VarChar(100)
+  userId         String?   @map("user_id") @db.VarChar(100)   // user_id Flip (untuk URL Aladin)
+  token          String    @db.Text        // encrypted — Bearer token Flip
+  pin            String    @db.VarChar(255) // encrypted — 6 digit PIN Flip
+  balance        Decimal   @default(0) @db.Decimal(15, 2)
+  tokenExpiresAt DateTime? @map("token_expires_at")
+  autoProcess    Boolean   @default(false) @map("auto_process") // toggle transfer otomatis
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  @@map("payment_providers")
+}

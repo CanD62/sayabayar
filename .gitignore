@@ -1,0 +1,35 @@
+# ── Dependencies ─────────────────────────────────────────────
+node_modules/
+.pnpm-store/
+
+# ── Environment ──────────────────────────────────────────────
+# File .env aktif JANGAN di-commit — isi nilai di sini tidak masuk ke git
+.env
+.env.local
+.env.*.local
+# File production juga JANGAN di-commit — upload manual ke server atau via Drone Secret
+deploy/.env.production
+
+# ── Build outputs ────────────────────────────────────────────
+dist/
+.next/
+out/
+
+# ── Logs ─────────────────────────────────────────────────────
+*.log
+logs/
+debug/
+npm-debug.log*
+pnpm-debug.log*
+
+# ── OS / Editor ───────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# ── Prisma ───────────────────────────────────────────────────
+packages/shared/src/generated/
+
+# ── Docker ───────────────────────────────────────────────────
+Dockerfile.base
