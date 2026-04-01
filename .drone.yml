@@ -106,7 +106,7 @@ steps:
         docker rm sayabayar_api || true
 
         docker run -d --name sayabayar_api \
-          -p 3001:3001 \
+          -p 3010:3001 \
           -v $(pwd):/app \
           -w /app/apps/api \
           --env-file $(pwd)/.env \
@@ -116,7 +116,7 @@ steps:
           $BASE_IMAGE \
           node src/index.js
 
-        echo "✅ API running di port 3001"
+        echo "✅ API running di port 3010"
 
         # ── Deploy: Scraper ───────────────────────────────────
         echo ""
@@ -156,13 +156,13 @@ steps:
         docker rm sayabayar_frontend || true
 
         docker run -d --name sayabayar_frontend \
-          -p 3000:3000 \
+          -p 3009:3000 \
           -e TZ=Asia/Jakarta \
           -e NODE_ENV=production \
           --restart always \
           $FRONTEND_IMAGE:latest
 
-        echo "✅ Frontend running di port 3000"
+        echo "✅ Frontend running di port 3009"
 
         # ── Health Check ──────────────────────────────────────
         echo ""
@@ -179,8 +179,8 @@ steps:
         echo ""
         echo "✅ ================================"
         echo "✅ Deploy selesai! Commit: $SHORT_SHA"
-        echo "🌐 API      : http://192.168.50.3:3001"
-        echo "🌐 Frontend : http://192.168.50.3:3000"
+        echo "🌐 API      : http://192.168.50.3:3010"
+        echo "🌐 Frontend : http://192.168.50.3:3009"
         echo "✅ ================================"
 
 trigger:

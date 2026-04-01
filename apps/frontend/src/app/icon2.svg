@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 32" fill="none">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="24" y2="32" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#10b981"/>
+      <stop offset="100%" stop-color="#0ea5e9"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Receipt: zigzag atas dan bawah, sisi lurus -->
+  <path
+    d="M 0,5 L 2.4,0 L 4.8,5 L 7.2,0 L 9.6,5 L 12,0 L 14.4,5 L 16.8,0 L 19.2,5 L 21.6,0 L 24,5 L 24,27 L 21.6,32 L 19.2,27 L 16.8,32 L 14.4,27 L 12,32 L 9.6,27 L 7.2,32 L 4.8,27 L 2.4,32 L 0,27 Z"
+    fill="url(#g)"
+  />
+
+  <!-- Lightning bolt utama (bold, white) -->
+  <path d="M 15,7 L 7.5,17.5 L 12.5,17.5 L 9,25.5 L 16.5,15 L 11.5,15 Z" fill="white"/>
+
+  <!-- Inner bolt detail (depth effect) -->
+  <path d="M 14,8 L 10.5,17.5 L 12.5,17.5 L 9,25.5 L 13,16 L 11,16 Z" fill="#0ea5e9" opacity="0.25"/>
+
+  <!-- Dekorasi teks struk kiri -->
+  <rect x="1.5" y="13"   width="4.5" height="1"   rx="0.5" fill="white" opacity="0.7"/>
+  <rect x="1.5" y="15.5" width="3.5" height="1"   rx="0.5" fill="white" opacity="0.7"/>
+  <rect x="1.5" y="18"   width="4.5" height="1"   rx="0.5" fill="white" opacity="0.7"/>
+
+  <!-- Dekorasi teks struk kanan -->
+  <rect x="18"   y="17"   width="4.5" height="1"  rx="0.5" fill="white" opacity="0.7"/>
+  <rect x="18.5" y="19.5" width="3.5" height="1"  rx="0.5" fill="white" opacity="0.7"/>
+  <rect x="18"   y="22"   width="4.5" height="1"  rx="0.5" fill="white" opacity="0.7"/>
+
+  <!-- Spark kecil atas-kiri -->
+  <path d="M 4.5,7 L 3,9 L 4,9 L 2.5,11.5 L 5.5,8.5 L 4.5,8.5 Z" fill="white" opacity="0.9"/>
+
+  <!-- Spark kecil bawah-kiri -->
+  <path d="M 2.5,24 L 1.5,25.5 L 2.5,25.5 L 1.5,27 L 3.5,25 L 2.5,25 Z" fill="white" opacity="0.8"/>
+
+  <!-- Spark kecil bawah-kanan -->
+  <path d="M 20.5,24 L 19.5,25.5 L 20.5,25.5 L 19.5,27 L 21.5,25 L 20.5,25 Z" fill="white" opacity="0.8"/>
+</svg>
