@@ -782,12 +782,7 @@ function SyncInfo({ c, restartingIds }) {
       ) : (
         <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>Belum berhasil</div>
       )}
-      {c.next_scrape_at && (
-        <div style={{ fontSize: '0.8rem', marginTop: 2 }}>
-          <span style={{ color: 'var(--text-muted)', fontSize: '0.7rem' }}>Berikutnya: </span>
-          <span style={{ fontWeight: 500 }}>{timeUntil(c.next_scrape_at)}</span>
-        </div>
-      )}
+
     </div>
   )
 }
