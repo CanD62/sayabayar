@@ -864,7 +864,7 @@ Daftarkan webhook endpoint baru.
   "data": {
     "id": "uuid",
     "url": "https://mystore.com/webhook/payment",
-    "secret": "whsec_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "secret": "whsec_contoh_keynya",
     "event_types": ["invoice.paid", "invoice.expired"],
     "is_active": true
   }

@@ -6,7 +6,7 @@ clone:
   disable: true
 
 steps:
-  - name: deploy to server
+  - name: deploy to production
     image: appleboy/drone-ssh
     environment:
       REGISTRY_USER:
@@ -26,161 +26,201 @@ steps:
         - REGISTRY_PASS
         - ENV_PRODUCTION
       script: |
-        # ── Variabel ──────────────────────────────────────────
+        # ════════════════════════════════════════════════════════
+        # Config
+        # ════════════════════════════════════════════════════════
         PROJECT_NAME="sayabayar"
         ROOT_DIR="apps"
+        APP_DIR="/home/$USER/$ROOT_DIR/$PROJECT_NAME"
         GITHUB_REPO="git@github.com:CanD62/sayabayar.git"
-        BASE_IMAGE="registry.pcs.my.id/playwright:latest"
-        FRONTEND_IMAGE="registry.pcs.my.id/sayabayar-frontend"
+
+        NODE_IMAGE="node:20-alpine"
+        PLAYWRIGHT_IMAGE="registry.pcs.my.id/playwright:latest"
+        FRONTEND_IMAGE="registry.pcs.my.id/sayabayar-web"
+
+        FRONTEND_PORT="3009"
+        API_PORT="3010"
         SHORT_SHA="${DRONE_COMMIT_SHA:0:7}"
-        PROJECT_DIR="/home/$USER/$ROOT_DIR/$PROJECT_NAME"
 
-        echo "👤 USER        : $USER"
-        echo "✅ Project     : $PROJECT_NAME"
-        echo "🖼️  Base Image  : $BASE_IMAGE"
-        echo "🌿 Branch      : ${DRONE_BRANCH}"
-        echo "🔑 Commit SHA  : $SHORT_SHA"
-        echo "======================"
+        echo "👤 USER             : $USER"
+        echo "✅ Project          : $PROJECT_NAME"
+        echo "🌿 Branch           : ${DRONE_BRANCH}"
+        echo "🔑 Commit SHA       : $SHORT_SHA"
+        echo "🌐 Frontend Port    : $FRONTEND_PORT"
+        echo "🌐 API Port         : $API_PORT"
+        echo "======================================="
 
-        # ── Git: Clone atau Pull ──────────────────────────────
+        # ════════════════════════════════════════════════════════
+        # Clone / Pull Repo
+        # ════════════════════════════════════════════════════════
+        mkdir -p /home/$USER/$ROOT_DIR
+        cd /home/$USER/$ROOT_DIR
+
         echo "🛡️ Menambahkan github.com ke known_hosts..."
         ssh-keyscan github.com >> ~/.ssh/known_hosts
 
-        if [ ! -d "$PROJECT_DIR/.git" ]; then
+        if [ ! -d "$PROJECT_NAME/.git" ]; then
           echo "🧩 Repository belum ada, clone dari GitHub..."
-          if [ -d "$PROJECT_DIR" ]; then
-            echo "⚠️  Folder ada tapi bukan repo Git, hapus dulu..."
-            rm -rf "$PROJECT_DIR"
+          if [ -d "$PROJECT_NAME" ]; then
+            echo "⚠️ Folder $PROJECT_NAME ada tapi bukan repo Git. Hapus dulu..."
+            chown -R $(id -u):$(id -g) "$PROJECT_NAME" 2>/dev/null || true
+            rm -rf "$PROJECT_NAME"
           fi
-          git clone $GITHUB_REPO $PROJECT_DIR
+          git clone $GITHUB_REPO
         else
-          echo "🔄 Pull repository..."
-          cd $PROJECT_DIR
+          echo "🔄 Pull repository terbaru..."
+          cd $PROJECT_NAME
           git fetch --all
           git reset --hard origin/main
         fi
 
-        cd $PROJECT_DIR
+        cd $APP_DIR
 
-        # ── Deploy .env dari Drone Secret ─────────────────────
-        echo "📝 Menulis file .env dari Drone Secret..."
+        # ════════════════════════════════════════════════════════
+        # Write .env dari Drone secret
+        # ════════════════════════════════════════════════════════
+        echo "📝 Menulis .env dari secret ENV_PRODUCTION..."
+
+        # Tulis full .env (dengan comment, untuk referensi)
         echo "$ENV_PRODUCTION" > .env
-        echo "✅ File .env berhasil ditulis"
+        chmod 600 .env
 
-        # ── Validasi .env ─────────────────────────────────────
-        if [ ! -f ".env" ]; then
-          echo "❌ File .env tidak ditemukan di $PROJECT_DIR!"
-          echo "⚠️  Buat file .env terlebih dahulu di server sebelum deploy."
-          exit 1
-        fi
+        # Tulis .env.docker (tanpa comment/baris kosong) untuk --env-file Docker
+        # Docker --env-file tidak support lines yang diawali '#' atau baris kosong
+        grep -v '^#' .env | grep -v '^[[:space:]]*$' > .env.docker
+        chmod 600 .env.docker
+        echo "✅ File .env berhasil ditulis ($(wc -l < .env) baris, docker: $(wc -l < .env.docker) baris)"
 
-        # ── Login ke Registry ─────────────────────────────────
+        # Extract vars untuk prisma generate dan frontend build
+        DATABASE_URL=$(grep "^DATABASE_URL=" .env | cut -d'=' -f2-)
+        NEXT_PUBLIC_API_URL=$(grep "^API_URL=" .env | cut -d'=' -f2-)
+        CF_SITE_KEY=$(grep "^NEXT_PUBLIC_CF_TURNSTILE_SITE_KEY=" .env | cut -d'=' -f2-)
+
+        # ════════════════════════════════════════════════════════
+        # Install Dependencies (pnpm di seluruh monorepo)
+        # ════════════════════════════════════════════════════════
+        echo "📦 Install dependencies (pnpm workspace)..."
+        docker run --rm \
+          -v $(pwd):/app \
+          -w /app \
+          $NODE_IMAGE \
+          sh -c "npm install -g pnpm --quiet && pnpm config set store-dir /app/.pnpm-store && pnpm install --frozen-lockfile"
+
+        # ════════════════════════════════════════════════════════
+        # Prisma Generate
+        # ════════════════════════════════════════════════════════
+        echo "🗄️ Prisma generate..."
+        docker run --rm \
+          -v $(pwd):/app \
+          -w /app \
+          -e DATABASE_URL="$DATABASE_URL" \
+          $NODE_IMAGE \
+          sh -c "node_modules/.bin/prisma generate --schema=packages/shared/prisma/schema.prisma"
+
+        # ════════════════════════════════════════════════════════
+        # Registry Login & Pull Base Images
+        # ════════════════════════════════════════════════════════
         echo "🔐 Login ke Docker registry..."
         echo $REGISTRY_PASS | docker login registry.pcs.my.id -u $REGISTRY_USER --password-stdin
 
-        echo "📥 Pull base image terbaru..."
-        docker pull $BASE_IMAGE
+        echo "📥 Pull Playwright base image..."
+        docker pull $PLAYWRIGHT_IMAGE
 
-        # ── Install Dependencies (pnpm workspace) ─────────────
-        echo "📦 Install dependencies (pnpm)..."
-        docker run --rm \
-          -v $(pwd):/app \
-          -w /app \
-          $BASE_IMAGE \
-          sh -c "npx --yes pnpm@latest install --frozen-lockfile"
-
-        # ── Generate Prisma Client ────────────────────────────
-        echo "🔧 Generate Prisma client..."
-        docker run --rm \
-          -v $(pwd):/app \
-          -w /app \
-          --env-file $(pwd)/.env \
-          $BASE_IMAGE \
-          sh -c "npx --yes pnpm@latest db:generate"
-
-        # ── Deploy: API ───────────────────────────────────────
-        echo ""
-        echo "🚀 Deploy API..."
+        # ════════════════════════════════════════════════════════
+        # Deploy API (Fastify) — Volume Mount
+        # ════════════════════════════════════════════════════════
+        echo "🚀 Deploy API (Fastify)..."
         docker stop sayabayar_api || true
         docker rm sayabayar_api || true
 
         docker run -d --name sayabayar_api \
-          -p 3010:3001 \
-          -v $(pwd):/app \
+          -v $APP_DIR:/app \
           -w /app/apps/api \
-          --env-file $(pwd)/.env \
+          -p $API_PORT:$API_PORT \
           -e TZ=Asia/Jakarta \
-          -e NODE_ENV=production \
+          --env-file $APP_DIR/.env.docker \
           --restart always \
-          $BASE_IMAGE \
+          $NODE_IMAGE \
           node src/index.js
 
-        echo "✅ API running di port 3010"
+        echo "✅ API container berjalan di port $API_PORT"
 
-        # ── Deploy: Scraper ───────────────────────────────────
-        echo ""
-        echo "🚀 Deploy Scraper..."
+        # ════════════════════════════════════════════════════════
+        # Deploy Scraper (Playwright) — Volume Mount
+        # ════════════════════════════════════════════════════════
+        echo "🕷️ Deploy Scraper (Playwright)..."
         docker stop sayabayar_scraper || true
         docker rm sayabayar_scraper || true
 
         docker run -d --name sayabayar_scraper \
-          -v $(pwd):/app \
+          -v $APP_DIR:/app \
           -w /app/apps/scraper \
-          --env-file $(pwd)/.env \
           -e TZ=Asia/Jakarta \
-          -e NODE_ENV=production \
+          --env-file $APP_DIR/.env.docker \
           --restart always \
-          $BASE_IMAGE \
+          $PLAYWRIGHT_IMAGE \
           node src/index.js
 
-        echo "✅ Scraper running"
+        echo "✅ Scraper container berjalan"
 
-        # ── Build & Deploy: Frontend ──────────────────────────
-        echo ""
-        echo "🏗️  Build Frontend (Next.js)..."
+        # ════════════════════════════════════════════════════════
+        # Build & Deploy Frontend (Next.js) — Docker Image
+        # ════════════════════════════════════════════════════════
+        echo "🏗️ Build Frontend image (Next.js)..."
+        echo "   NEXT_PUBLIC_API_URL        : $NEXT_PUBLIC_API_URL"
+        echo "   NEXT_PUBLIC_CF_SITE_KEY    : $CF_SITE_KEY"
+
         docker build \
-          --build-arg NEXT_PUBLIC_API_URL=https://api.sayabayar.com \
-          --build-arg NEXT_PUBLIC_CF_TURNSTILE_SITE_KEY=$(grep NEXT_PUBLIC_CF_TURNSTILE_SITE_KEY .env | cut -d= -f2) \
+          -f apps/frontend/Dockerfile \
+          --build-arg "NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL" \
+          --build-arg "NEXT_PUBLIC_CF_TURNSTILE_SITE_KEY=$CF_SITE_KEY" \
           -t $FRONTEND_IMAGE:latest \
           -t $FRONTEND_IMAGE:$SHORT_SHA \
-          -f apps/frontend/Dockerfile \
-          apps/frontend/
+          apps/frontend
 
         echo "📤 Push frontend image ke registry..."
         docker push $FRONTEND_IMAGE:latest
         docker push $FRONTEND_IMAGE:$SHORT_SHA
 
-        echo "🚀 Deploy Frontend..."
-        docker stop sayabayar_frontend || true
-        docker rm sayabayar_frontend || true
+        echo "🚀 Deploy Frontend container..."
+        docker stop sayabayar_web || true
+        docker rm sayabayar_web || true
 
-        docker run -d --name sayabayar_frontend \
-          -p 3009:3000 \
+        docker run -d --name sayabayar_web \
+          -p $FRONTEND_PORT:3000 \
           -e TZ=Asia/Jakarta \
           -e NODE_ENV=production \
           --restart always \
           $FRONTEND_IMAGE:latest
 
-        echo "✅ Frontend running di port 3009"
+        echo "✅ Frontend container berjalan di port $FRONTEND_PORT"
 
-        # ── Health Check ──────────────────────────────────────
-        echo ""
-        echo "⏳ Tunggu services siap (10s)..."
-        sleep 10
-
-        echo "🔍 Status containers:"
-        docker ps | grep -E "sayabayar_api|sayabayar_scraper|sayabayar_frontend" || true
+        # ════════════════════════════════════════════════════════
+        # Health Check & Logs
+        # ════════════════════════════════════════════════════════
+        echo "⏳ Menunggu semua services ready (15 detik)..."
+        sleep 15
 
         echo ""
-        echo "📋 Logs API (5 baris terakhir):"
-        docker logs --tail 5 sayabayar_api || true
+        echo "🔍 Status semua containers:"
+        docker ps --filter "name=sayabayar" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
 
         echo ""
-        echo "✅ ================================"
-        echo "✅ Deploy selesai! Commit: $SHORT_SHA"
-        echo "🌐 API      : http://192.168.50.3:3010"
-        echo "🌐 Frontend : http://192.168.50.3:3009"
-        echo "✅ ================================"
+        echo "📋 Logs API (tail 20):"
+        docker logs --tail 20 sayabayar_api
+
+        echo ""
+        echo "📋 Logs Scraper (tail 10):"
+        docker logs --tail 10 sayabayar_scraper
+
+        echo ""
+        echo "📋 Logs Frontend (tail 10):"
+        docker logs --tail 10 sayabayar_web
+
+        echo ""
+        echo "✅ Deployment selesai!"
+        echo "🌐 Frontend : http://192.168.50.3:$FRONTEND_PORT"
+        echo "🌐 API      : http://192.168.50.3:$API_PORT"
 
 trigger:
   branch:
