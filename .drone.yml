@@ -93,6 +93,14 @@ steps:
           $NODE_IMAGE \
           sh -c "node_modules/.bin/prisma generate"
 
+        echo "Prisma db push..."
+        docker run --rm \
+          -v $(pwd):/app \
+          -w /app/packages/shared \
+          -e DATABASE_URL="$DATABASE_URL" \
+          $NODE_IMAGE \
+          sh -c "node_modules/.bin/prisma db push --skip-generate"
+
         echo "Login ke Docker registry..."
         echo $REGISTRY_PASS | docker login registry.pcs.my.id -u $REGISTRY_USER --password-stdin
 
