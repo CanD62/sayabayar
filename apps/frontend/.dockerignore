@@ -1,0 +1,16 @@
+# Dependencies yang diinstall oleh npm install di Dockerfile
+node_modules
+
+# Next.js build output
+.next
+
+# Environment files
+.env*
+.env.local
+.env.production
+
+# Dev files
+.git
+.gitignore
+*.md
+README*

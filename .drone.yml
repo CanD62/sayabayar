@@ -26,33 +26,25 @@ steps:
         - REGISTRY_PASS
         - ENV_PRODUCTION
       script: |
-        # ========================================================
-        # Config
-        # ========================================================
         PROJECT_NAME="sayabayar"
         ROOT_DIR="apps"
         APP_DIR="/home/$USER/$ROOT_DIR/$PROJECT_NAME"
         GITHUB_REPO="git@github.com:CanD62/sayabayar.git"
-
         NODE_IMAGE="node:20-alpine"
         PLAYWRIGHT_IMAGE="registry.pcs.my.id/playwright:latest"
         FRONTEND_IMAGE="registry.pcs.my.id/sayabayar-web"
-
         FRONTEND_PORT="3009"
         API_PORT="3010"
         SHORT_SHA="${DRONE_COMMIT_SHA:0:7}"
 
-        echo "USER             : $USER"
-        echo "Project          : $PROJECT_NAME"
-        echo "Branch           : ${DRONE_BRANCH}"
-        echo "Commit SHA       : $SHORT_SHA"
-        echo "Frontend Port    : $FRONTEND_PORT"
-        echo "API Port         : $API_PORT"
+        echo "USER          : $USER"
+        echo "Project       : $PROJECT_NAME"
+        echo "Branch        : ${DRONE_BRANCH}"
+        echo "Commit SHA    : $SHORT_SHA"
+        echo "Frontend Port : $FRONTEND_PORT"
+        echo "API Port      : $API_PORT"
         echo "========================================="
 
-        # ========================================================
-        # Clone atau Pull Repo
-        # ========================================================
         mkdir -p /home/$USER/$ROOT_DIR
         cd /home/$USER/$ROOT_DIR
 
@@ -60,9 +52,8 @@ steps:
         ssh-keyscan github.com >> ~/.ssh/known_hosts
 
         if [ ! -d "$PROJECT_NAME/.git" ]; then
-          echo "Repository belum ada, clone dari GitHub..."
+          echo "Clone repository dari GitHub..."
           if [ -d "$PROJECT_NAME" ]; then
-            echo "Folder $PROJECT_NAME ada tapi bukan repo Git. Hapus dulu..."
             chown -R $(id -u):$(id -g) "$PROJECT_NAME" 2>/dev/null || true
             rm -rf "$PROJECT_NAME"
           fi
@@ -76,40 +67,25 @@ steps:
 
         cd $APP_DIR
 
-        # ========================================================
-        # Write .env dari Drone secret ENV_PRODUCTION
-        # ========================================================
-        echo "Menulis .env dari secret..."
+        echo "Menulis .env dari secret Drone..."
         echo "$ENV_PRODUCTION" > .env
         chmod 600 .env
-
-        # Buat .env.docker tanpa baris komentar dan baris kosong
-        # Docker --env-file tidak support baris komentar atau baris kosong
         grep -v '^#' .env | grep -v '^[[:space:]]*$' > .env.docker
         chmod 600 .env.docker
         echo "File .env berhasil ditulis"
 
-        # Ambil nilai untuk prisma generate dan frontend build
         DATABASE_URL=$(grep "^DATABASE_URL=" .env | cut -d'=' -f2-)
         NEXT_PUBLIC_API_URL=$(grep "^API_URL=" .env | cut -d'=' -f2-)
         CF_SITE_KEY=$(grep "^NEXT_PUBLIC_CF_TURNSTILE_SITE_KEY=" .env | cut -d'=' -f2-)
 
-        # ========================================================
-        # Install Dependencies via pnpm workspace
-        # ========================================================
-        echo "Install dependencies pnpm workspace..."
+        echo "Install dependencies via pnpm workspace..."
         docker run --rm \
           -v $(pwd):/app \
           -w /app \
           $NODE_IMAGE \
           sh -c "npm install -g pnpm --quiet && pnpm config set store-dir /app/.pnpm-store && pnpm install --frozen-lockfile"
 
-        # ========================================================
-        # Prisma Generate
-        # Jalankan dari packages/shared agar schema.prisma ditemukan otomatis
-        # dan binary prisma tersedia di node_modules/.bin/prisma milik shared
-        # ========================================================
-        echo "Prisma generate..."
+        echo "Prisma generate untuk Alpine dan Ubuntu..."
         docker run --rm \
           -v $(pwd):/app \
           -w /app/packages/shared \
@@ -117,22 +93,15 @@ steps:
           $NODE_IMAGE \
           sh -c "node_modules/.bin/prisma generate"
 
-        # ========================================================
-        # Login Registry dan Pull Base Images
-        # ========================================================
         echo "Login ke Docker registry..."
         echo $REGISTRY_PASS | docker login registry.pcs.my.id -u $REGISTRY_USER --password-stdin
 
         echo "Pull Playwright base image..."
         docker pull $PLAYWRIGHT_IMAGE
 
-        # ========================================================
-        # Deploy API - Fastify, volume mount
-        # ========================================================
         echo "Deploy API Fastify..."
         docker stop sayabayar_api || true
         docker rm sayabayar_api || true
-
         docker run -d --name sayabayar_api \
           -v $APP_DIR:/app \
           -w /app/apps/api \
@@ -142,16 +111,11 @@ steps:
           --restart always \
           $NODE_IMAGE \
           node src/index.js
+        echo "API berjalan di port $API_PORT"
 
-        echo "API container berjalan di port $API_PORT"
-
-        # ========================================================
-        # Deploy Scraper - Playwright, volume mount
-        # ========================================================
         echo "Deploy Scraper Playwright..."
         docker stop sayabayar_scraper || true
         docker rm sayabayar_scraper || true
-
         docker run -d --name sayabayar_scraper \
           -v $APP_DIR:/app \
           -w /app/apps/scraper \
@@ -160,16 +124,11 @@ steps:
           --restart always \
           $PLAYWRIGHT_IMAGE \
           node src/index.js
+        echo "Scraper berjalan"
 
-        echo "Scraper container berjalan"
-
-        # ========================================================
-        # Build dan Deploy Frontend - Next.js, Docker image
-        # ========================================================
         echo "Build Frontend image Next.js..."
         echo "NEXT_PUBLIC_API_URL : $NEXT_PUBLIC_API_URL"
         echo "CF_SITE_KEY         : $CF_SITE_KEY"
-
         docker build \
           -f apps/frontend/Dockerfile \
           --build-arg "NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL" \
@@ -185,39 +144,29 @@ steps:
         echo "Deploy Frontend container..."
         docker stop sayabayar_web || true
         docker rm sayabayar_web || true
-
         docker run -d --name sayabayar_web \
           -p $FRONTEND_PORT:3000 \
           -e TZ=Asia/Jakarta \
           -e NODE_ENV=production \
           --restart always \
           $FRONTEND_IMAGE:latest
+        echo "Frontend berjalan di port $FRONTEND_PORT"
 
-        echo "Frontend container berjalan di port $FRONTEND_PORT"
-
-        # ========================================================
-        # Health Check dan Logs
-        # ========================================================
         echo "Menunggu semua services ready..."
         sleep 15
 
-        echo ""
-        echo "Status semua containers:"
+        echo "Status containers:"
         docker ps --filter "name=sayabayar" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
 
-        echo ""
         echo "Logs API tail 20:"
         docker logs --tail 20 sayabayar_api
 
-        echo ""
         echo "Logs Scraper tail 10:"
         docker logs --tail 10 sayabayar_scraper
 
-        echo ""
         echo "Logs Frontend tail 10:"
         docker logs --tail 10 sayabayar_web
 
-        echo ""
         echo "Deployment selesai!"
         echo "Frontend : http://192.168.50.3:$FRONTEND_PORT"
         echo "API      : http://192.168.50.3:$API_PORT"
