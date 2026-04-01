@@ -74,7 +74,7 @@ class BrowserPool {
    */
   async createSession(channelId) {
     const browser = await chromium.launch({
-      headless: false,
+      headless: true,
       args: BROWSER_ARGS
     })
 
@@ -139,7 +139,7 @@ class BrowserPool {
       session.isLoggedIn = loggedIn
       if (loggedIn) session.loginAt = Date.now()
     }
-    await setSessionStatus(channelId, loggedIn).catch(() => {})
+    await setSessionStatus(channelId, loggedIn).catch(() => { })
   }
 
   /**
@@ -157,24 +157,24 @@ class BrowserPool {
           await session.mainPage.evaluate(() => {
             localStorage.clear()
             sessionStorage.clear()
-          }).catch(() => {})
-          await session.mainPage.goto('https://qr.klikbca.com/QRMerchantService/v2.10/login', { timeout: 5000 }).catch(() => {})
-          await session.mainPage.waitForTimeout(500).catch(() => {})
+          }).catch(() => { })
+          await session.mainPage.goto('https://qr.klikbca.com/QRMerchantService/v2.10/login', { timeout: 5000 }).catch(() => { })
+          await session.mainPage.waitForTimeout(500).catch(() => { })
         } else if (url && url.includes('ibank.klikbca.com')) {
           // KlikBCA Internet Banking
           console.log(`[BrowserPool] Logging out BCA: ${channelId}...`)
           await session.mainPage.goto(
             'https://ibank.klikbca.com/authentication.do?value(actions)=logout',
             { timeout: 5000 }
-          ).catch(() => {})
-          await session.mainPage.waitForTimeout(500).catch(() => {})
+          ).catch(() => { })
+          await session.mainPage.waitForTimeout(500).catch(() => { })
         }
       } catch { /* page might be crashed */ }
 
-      await session.context.clearCookies().catch(() => {})
+      await session.context.clearCookies().catch(() => { })
       session.isLoggedIn = false
       session.loginAt = 0
-      await setSessionStatus(channelId, false).catch(() => {})
+      await setSessionStatus(channelId, false).catch(() => { })
       console.log(`[BrowserPool] ✅ Force logout: ${channelId}`)
     }
   }
@@ -195,8 +195,8 @@ class BrowserPool {
               await session.mainPage.goto(
                 'https://qr.klikbca.com/QRMerchantService/v2.10/login',
                 { timeout: 5000 }
-              ).catch(() => {})
-              await session.mainPage.waitForTimeout(500).catch(() => {})
+              ).catch(() => { })
+              await session.mainPage.waitForTimeout(500).catch(() => { })
               console.log(`[BrowserPool] ✅ QRIS BCA logged out: ${channelId}`)
             } else if (url && url.includes('ibank.klikbca.com')) {
               // KlikBCA Internet Banking
@@ -204,8 +204,8 @@ class BrowserPool {
               await session.mainPage.goto(
                 'https://ibank.klikbca.com/authentication.do?value(actions)=logout',
                 { timeout: 5000 }
-              ).catch(() => {})
-              await session.mainPage.waitForTimeout(500).catch(() => {})
+              ).catch(() => { })
+              await session.mainPage.waitForTimeout(500).catch(() => { })
               console.log(`[BrowserPool] ✅ BCA logged out: ${channelId}`)
             }
           } catch { /* page might be crashed */ }
@@ -216,12 +216,12 @@ class BrowserPool {
           clearPageState(session.mainPage)
         }
 
-        await session.mainPage?.close().catch(() => {})
-        await session.context?.close().catch(() => {})
-        await session.browser?.close().catch(() => {})
+        await session.mainPage?.close().catch(() => { })
+        await session.context?.close().catch(() => { })
+        await session.browser?.close().catch(() => { })
       } catch { /* ignore */ }
       this.pool.delete(channelId)
-      await clearSessionStatus(channelId).catch(() => {})
+      await clearSessionStatus(channelId).catch(() => { })
       console.log(`[BrowserPool] Destroyed session: ${channelId}`)
     }
   }
