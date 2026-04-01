@@ -77,6 +77,7 @@ steps:
         DATABASE_URL=$(grep "^DATABASE_URL=" .env | cut -d'=' -f2-)
         NEXT_PUBLIC_API_URL=$(grep "^API_URL=" .env | cut -d'=' -f2-)
         CF_SITE_KEY=$(grep "^NEXT_PUBLIC_CF_TURNSTILE_SITE_KEY=" .env | cut -d'=' -f2-)
+        GOOGLE_CLIENT_ID=$(grep "^GOOGLE_CLIENT_ID=" .env | cut -d'=' -f2-)
 
         echo "Install dependencies via pnpm workspace..."
         docker run --rm \
@@ -93,13 +94,13 @@ steps:
           $NODE_IMAGE \
           sh -c "node_modules/.bin/prisma generate"
 
-        echo "Prisma db push..."
+        echo "Prisma migrate deploy..."
         docker run --rm \
           -v $(pwd):/app \
           -w /app/packages/shared \
           -e DATABASE_URL="$DATABASE_URL" \
           $NODE_IMAGE \
-          sh -c "node_modules/.bin/prisma db push --skip-generate"
+          sh -c "node_modules/.bin/prisma migrate deploy"
 
         echo "Login ke Docker registry..."
         echo $REGISTRY_PASS | docker login registry.pcs.my.id -u $REGISTRY_USER --password-stdin
@@ -137,10 +138,12 @@ steps:
         echo "Build Frontend image Next.js..."
         echo "NEXT_PUBLIC_API_URL : $NEXT_PUBLIC_API_URL"
         echo "CF_SITE_KEY         : $CF_SITE_KEY"
+        echo "GOOGLE_CLIENT_ID    : $GOOGLE_CLIENT_ID"
         docker build \
           -f apps/frontend/Dockerfile \
           --build-arg "NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL" \
           --build-arg "NEXT_PUBLIC_CF_TURNSTILE_SITE_KEY=$CF_SITE_KEY" \
+          --build-arg "NEXT_PUBLIC_GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID" \
           -t $FRONTEND_IMAGE:latest \
           -t $FRONTEND_IMAGE:$SHORT_SHA \
           apps/frontend
