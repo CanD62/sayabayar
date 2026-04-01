@@ -86,9 +86,8 @@ steps:
         docker run --rm \
           -v $(pwd):/app \
           -w /app \
-          --user $(id -u):$(id -g) \
           $BASE_IMAGE \
-          sh -c "npm install -g pnpm@latest && pnpm install --frozen-lockfile"
+          sh -c "npx --yes pnpm@latest install --frozen-lockfile"
 
         # ── Generate Prisma Client ────────────────────────────
         echo "🔧 Generate Prisma client..."
@@ -97,7 +96,7 @@ steps:
           -w /app \
           --env-file $(pwd)/.env \
           $BASE_IMAGE \
-          sh -c "npm install -g pnpm@latest && pnpm db:generate"
+          sh -c "npx --yes pnpm@latest db:generate"
 
         # ── Deploy: API ───────────────────────────────────────
         echo ""

@@ -4,13 +4,13 @@ FROM registry.pcs.my.id/playwright:latest AS builder
 WORKDIR /app
 
 # Copy hanya package files dulu (layer caching)
-COPY apps/frontend/package.json ./
+COPY package.json ./
 
 # Install dependencies
 RUN npm install
 
 # Copy seluruh source frontend
-COPY apps/frontend/ ./
+COPY . ./
 
 # Build Next.js (NEXT_PUBLIC_ harus di-set saat build time)
 ARG NEXT_PUBLIC_API_URL=https://api.sayabayar.com
