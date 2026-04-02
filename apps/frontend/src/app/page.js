@@ -25,7 +25,7 @@ const FEATURES = [
   },
   {
     icon: Building2,
-    title: 'Dana Langsung ke Rekening Anda (BERBAYAR)',
+    title: 'Dana Langsung ke Rekening Anda (Pro)',
     desc: 'Tambah rekening sendiri (BCA & QRIS). Dana masuk 100% langsung ke rekening Anda — tanpa perantara, tanpa potongan.',
   },
   {
@@ -106,11 +106,11 @@ const FAQ_ITEMS = [
   },
   {
     q: 'Apakah dana masuk ke rekening saya?',
-    a: 'Untuk pengguna BERBAYAR, dana langsung masuk ke rekening Anda tanpa perantara. Untuk versi Gratis, dana masuk ke saldo platform — tersedia untuk dicairkan setelah H+2 (2 hari kerja) dengan biaya withdraw Rp 2.500 per pencairan.',
+    a: 'Untuk pengguna Pro, dana langsung masuk ke rekening Anda tanpa perantara. Untuk versi Gratis, dana masuk ke saldo platform — tersedia untuk dicairkan setelah H+2 (2 hari kerja) dengan biaya withdraw Rp 2.500 per pencairan.',
   },
   {
     q: 'Apakah ada biaya per transaksi?',
-    a: 'Tidak ada biaya per transaksi (0%). Anda hanya membayar biaya langganan untuk versi BERBAYAR, tanpa potongan dari setiap pembayaran yang masuk.',
+    a: 'Tidak ada biaya per transaksi (0%). Anda hanya membayar biaya langganan untuk versi Pro, tanpa potongan dari setiap pembayaran yang masuk.',
   },
   {
     q: 'Bagaimana sistem mengetahui pembayaran sudah masuk?',
@@ -118,7 +118,7 @@ const FAQ_ITEMS = [
   },
   {
     q: 'Kenapa ada selisih nominal (kode unik)?',
-    a: 'Selisih kecil (biasanya 2–3 digit) ditambahkan ke nominal invoice agar setiap pembayaran bisa diidentifikasi secara otomatis tanpa konfirmasi manual. Selisih ini menjadi pendapatan platform di versi Gratis, dan tidak dikenakan pada versi BERBAYAR karena dana langsung masuk ke rekening Anda.',
+    a: 'Selisih kecil (biasanya 2–3 digit) ditambahkan ke nominal invoice agar setiap pembayaran bisa diidentifikasi secara otomatis tanpa konfirmasi manual. Selisih ini menjadi pendapatan platform di versi Gratis, dan tidak dikenakan pada versi Pro karena dana langsung masuk ke rekening Anda.',
   },
   {
     q: 'Berapa lama verifikasi pembayaran?',
@@ -137,8 +137,8 @@ const FAQ_ITEMS = [
     a: 'Tidak wajib. Anda bisa langsung menggunakan dashboard untuk membuat invoice. Untuk kebutuhan lanjutan, tersedia webhook untuk integrasi ke sistem Anda.',
   },
   {
-    q: 'Apa perbedaan versi gratis dan BERBAYAR?',
-    a: 'Versi gratis menggunakan channel pembayaran dari platform. Versi BERBAYAR memungkinkan Anda menggunakan rekening sendiri dan menerima dana langsung tanpa perantara.',
+    q: 'Apa perbedaan versi gratis dan Pro?',
+    a: 'Versi gratis menggunakan channel pembayaran dari platform. Versi Pro memungkinkan Anda menggunakan rekening sendiri dan menerima dana langsung tanpa perantara.',
   },
 ]
 
@@ -252,7 +252,7 @@ function randomInvoice() {
 function PaymentToast() {
   const [visible, setVisible] = useState(false)
   const [current, setCurrent] = useState(null)
-  const [elapsed, setElapsed]   = useState(0)   // detik sejak toast muncul (live counter)
+  const [elapsed, setElapsed] = useState(0)   // detik sejak toast muncul (live counter)
 
   const hideTimer = useRef(null)
   const nextTimer = useRef(null)
@@ -275,8 +275,8 @@ function PaymentToast() {
     const channel = CHANNELS[Math.floor(Math.random() * CHANNELS.length)]
     setCurrent({
       channel,
-      name:    randomName(),
-      amount:  randomAmount(channel),
+      name: randomName(),
+      amount: randomAmount(channel),
       invoice: randomInvoice(),
     })
     setElapsed(0)
@@ -390,15 +390,17 @@ export default function HomePage() {
       <section className="lp-hero">
         <div className="lp-container">
           <div className="lp-hero-badge">
-            <Zap size={14} /> Terima pembayaran langsung ke rekening — tanpa fee, tanpa cek mutasi
+            <Zap size={14} /> Verifikasi Otomatis & Tanpa Potongan Biaya
           </div>
           <h1 className="lp-hero-title">
-            Tanpa Payment Gateway,<br />
+            Payment Gateway Tanpa Perantara<br />
             <span className="lp-gradient-text">Dana Langsung ke Rekening Anda</span>
           </h1>
           <p className="lp-hero-subtitle">
             Buat invoice dalam hitungan detik. Pelanggan bayar, sistem otomatis mencocokkan tanpa perlu cek mutasi.
-            Mulai gratis, upgrade ke PRO untuk menerima dana langsung ke rekening Anda tanpa potongan dari platform.
+          </p>
+          <p className="lp-hero-subtitle">
+            Mulai gratis, upgrade ke Pro untuk menerima dana langsung ke rekening Anda tanpa potongan dari platform.
           </p>
           <div className="lp-hero-actions">
             <Link href="/register" className="btn btn-primary btn-lg">
@@ -559,7 +561,7 @@ export default function HomePage() {
             {/* Berbayar */}
             <div className="lp-pricing-card lp-pricing-card-featured">
               <div className="lp-pricing-badge">Terpopuler</div>
-              <div className="lp-pricing-name">Berbayar</div>
+              <div className="lp-pricing-name">Pro</div>
               <div className="lp-pricing-price">Rp 99.000 <span>/bulan</span></div>
               <p className="text-sm text-muted" style={{ marginBottom: 20 }}>
                 Untuk bisnis yang butuh kontrol penuh — dana langsung masuk ke rekening Anda
@@ -638,7 +640,7 @@ export default function HomePage() {
             Mulai gratis hari ini. Setup hanya 5 menit.
           </p>
           <Link href="/register" className="btn btn-primary btn-lg">
-            Coba Gratis Sekarang <ArrowRight size={18} />
+            Mulai Pakai Saya Bayar — Gratis <ArrowRight size={18} />
           </Link>
           <div className="lp-cta-trust">
             <span><CheckCircle size={14} /> Tanpa biaya</span>
