@@ -33,7 +33,10 @@ export function startMatchWorker(concurrency = 5) {
       orderBy: [
         { status: 'asc' },       // user_confirmed sorts before pending
         { createdAt: 'asc' }     // oldest first (FIFO)
-      ]
+      ],
+      include: {
+        paymentChannel: { select: { channelOwner: true } }
+      }
     })
 
     if (!invoice) {
@@ -96,28 +99,39 @@ export function startMatchWorker(concurrency = 5) {
 
     // Only credit client balance for regular invoices (NOT subscription payments)
     if (!isSubscriptionInvoice) {
-      txOps.push(
-        // Create balance ledger entry (credit_pending — settles in H+2)
-        db.balanceLedger.create({
-          data: {
-            clientId: invoice.clientId,
-            invoiceId: invoice.id,
-            type: 'credit_pending',
-            amount: Number(invoice.amount),
-            availableAt: settlementDate,
-            note: `Invoice ${invoice.invoiceNumber} — settlement H+2`
-          }
-        }),
+      const isOwnChannel = invoice.paymentChannel?.channelOwner === 'client'
 
-        // Update client balance
-        db.clientBalance.update({
-          where: { clientId: invoice.clientId },
-          data: {
-            balancePending: { increment: Number(invoice.amount) },
-            totalEarned: { increment: Number(invoice.amount) }
-          }
-        })
-      )
+      if (isOwnChannel) {
+        // ── Channel sendiri: dana TIDAK masuk ke saldo platform ──────────
+        // Dana sudah langsung ke rekening/QRIS milik client.
+        // Platform tidak memegang dana ini → tidak boleh bisa ditarik via platform.
+        // Tidak perlu insert balanceLedger maupun update clientBalance.
+        console.log(`[MatchWorker] Own-channel invoice ${invoice.invoiceNumber} — skip balance ledger (dana ke rekening sendiri)`)
+      } else {
+        // ── Channel platform: masuk pending, settle H+2 ──────────────────
+        txOps.push(
+          db.balanceLedger.create({
+            data: {
+              clientId: invoice.clientId,
+              invoiceId: invoice.id,
+              type: 'credit_pending',
+              amount: Number(invoice.amount),
+              availableAt: settlementDate,
+              note: `Invoice ${invoice.invoiceNumber} — settlement H+2`
+            }
+          }),
+
+          db.clientBalance.update({
+            where: { clientId: invoice.clientId },
+            data: {
+              balancePending: { increment: Number(invoice.amount) },
+              totalEarned:    { increment: Number(invoice.amount) }
+            }
+          })
+        )
+
+        console.log(`[MatchWorker] Balance credited: type=credit_pending owner=platform amount=${invoice.amount}`)
+      }
     }
 
     await db.$transaction(txOps)
