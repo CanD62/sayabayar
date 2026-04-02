@@ -2589,6 +2589,11 @@ tbody tr.row-cancelled:hover {
   text-align: center;
   position: relative;
   overflow: hidden;
+  /* Dot grid texture */
+  background-image:
+    radial-gradient(circle at 50% 0%, rgba(16,185,129,0.10) 0%, transparent 55%),
+    radial-gradient(rgba(255,255,255,0.035) 1px, transparent 1px);
+  background-size: 100% 100%, 28px 28px;
 }
 
 .lp-hero::before {
@@ -2597,9 +2602,21 @@ tbody tr.row-cancelled:hover {
   top: -30%;
   left: 50%;
   transform: translateX(-50%);
-  width: 800px;
-  height: 800px;
-  background: radial-gradient(circle, rgba(16, 185, 129, 0.08) 0%, transparent 70%);
+  width: 900px;
+  height: 900px;
+  background: radial-gradient(circle, rgba(16, 185, 129, 0.10) 0%, transparent 65%);
+  pointer-events: none;
+}
+
+/* Bottom fade out of hero into next section */
+.lp-hero::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 80px;
+  background: linear-gradient(to bottom, transparent, var(--bg-base));
   pointer-events: none;
 }
 
@@ -2681,6 +2698,12 @@ tbody tr.row-cancelled:hover {
 /* ── Sections ───────────────────────────────────────── */
 .lp-section {
   padding: 80px 0;
+  position: relative;
+}
+
+/* Subtle top border on every section to create visual separation */
+.lp-section + .lp-section {
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
 }
 
 .lp-section-header {
@@ -2700,6 +2723,57 @@ tbody tr.row-cancelled:hover {
   font-size: 1rem;
   max-width: 480px;
   margin: 0 auto;
+}
+
+/* ── Section Background Variants (Visual Rhythm) ────── */
+
+/* Section 1 – Problem: slightly lighter, hint of warmth */
+.lp-section-problem {
+  background: rgba(20, 22, 30, 0.9);
+}
+
+/* Section 2 – Cara Kerja: dark navy with subtle teal glow at top */
+.lp-section-steps {
+  background:
+    radial-gradient(ellipse 70% 40% at 50% 0%, rgba(16,185,129,0.06) 0%, transparent 100%),
+    rgba(15, 17, 24, 1);
+  border-top: 1px solid rgba(16, 185, 129, 0.08) !important;
+}
+
+/* Section 3 – Fitur: medium dark, very subtle grid */
+.lp-section-features {
+  background-image:
+    radial-gradient(rgba(255,255,255,0.025) 1px, transparent 1px);
+  background-size: 24px 24px;
+  background-color: rgba(18, 20, 28, 1);
+  border-top: 1px solid rgba(255, 255, 255, 0.05) !important;
+}
+
+/* Section 4 – Security: darkest, slight purple tint */
+.lp-section-security {
+  background: rgba(14, 14, 22, 1);
+  border-top: 1px solid rgba(255, 255, 255, 0.04) !important;
+}
+
+/* Section 5 – Pricing: teal-accented highlight zone */
+.lp-section-pricing {
+  background:
+    radial-gradient(ellipse 80% 50% at 50% 100%, rgba(16,185,129,0.07) 0%, transparent 100%),
+    rgba(13, 16, 22, 1);
+  border-top: 1px solid rgba(16, 185, 129, 0.12) !important;
+  border-bottom: 1px solid rgba(16, 185, 129, 0.08);
+}
+
+/* Section 6 – Testimonials: back to base, lighter cards */
+.lp-section-testimonials {
+  background: rgba(16, 18, 26, 1);
+  border-top: 1px solid rgba(255, 255, 255, 0.04) !important;
+}
+
+/* Section 7 – FAQ: darkest, clean focus zone */
+.lp-section-faq {
+  background: rgba(12, 14, 20, 1);
+  border-top: 1px solid rgba(255, 255, 255, 0.05) !important;
 }
 
 /* ── Problem ────────────────────────────────────────── */

@@ -451,7 +451,7 @@ export default function HomePage() {
       </section>
 
       {/* ── Masalah ──────────────────────────────── */}
-      <section className="lp-section" style={{ paddingBottom: 0 }}>
+      <section className="lp-section lp-section-problem" style={{ paddingBottom: 0 }}>
         <div className="lp-container">
           <div className="lp-section-header">
             <h2 className="lp-section-title">Masih Cek Mutasi Satu-Satu Setiap Hari?</h2>
@@ -480,7 +480,7 @@ export default function HomePage() {
       </section>
 
       {/* ── Cara Kerja ───────────────────────────── */}
-      <section className="lp-section" id="cara-kerja">
+      <section className="lp-section lp-section-steps" id="cara-kerja">
         <div className="lp-container">
           <div className="lp-section-header">
             <h2 className="lp-section-title">Simpel. 3 Langkah. Selesai.</h2>
@@ -504,7 +504,7 @@ export default function HomePage() {
       </section>
 
       {/* ── Fitur ────────────────────────────────── */}
-      <section className="lp-section" id="fitur">
+      <section className="lp-section lp-section-features" id="fitur">
         <div className="lp-container">
           <div className="lp-section-header">
             <h2 className="lp-section-title">Semua yang Anda Butuhkan</h2>
@@ -526,7 +526,7 @@ export default function HomePage() {
       </section>
 
       {/* ── Trust / Security ─────────────────────── */}
-      <section className="lp-section">
+      <section className="lp-section lp-section-security">
         <div className="lp-container">
           <div className="lp-section-header">
             <h2 className="lp-section-title">Keamanan &amp; Transparansi</h2>
@@ -558,7 +558,7 @@ export default function HomePage() {
       </section>
 
       {/* ── Pricing ──────────────────────────────── */}
-      <section className="lp-section" id="harga">
+      <section className="lp-section lp-section-pricing" id="harga">
         <div className="lp-container">
           <div className="lp-section-header">
             <h2 className="lp-section-title">Harga Transparan, Tanpa Kejutan</h2>
@@ -623,7 +623,7 @@ export default function HomePage() {
       </section>
 
       {/* ── Testimonials ─────────────────────────── */}
-      <section className="lp-section">
+      <section className="lp-section lp-section-testimonials">
         <div className="lp-container">
           <div className="lp-section-header">
             <h2 className="lp-section-title">Kata Mereka yang Sudah Pakai</h2>
@@ -650,7 +650,7 @@ export default function HomePage() {
       </section>
 
       {/* ── FAQ ──────────────────────────────────── */}
-      <section className="lp-section" id="faq">
+      <section className="lp-section lp-section-faq" id="faq">
         <div className="lp-container">
           <div className="lp-section-header">
             <h2 className="lp-section-title">Pertanyaan yang Sering Ditanyakan</h2>
