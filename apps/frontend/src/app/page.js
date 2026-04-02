@@ -138,7 +138,7 @@ const FAQ_ITEMS = [
   },
   {
     q: 'Apa perbedaan versi gratis dan Pro?',
-    a: 'Versi gratis menggunakan channel pembayaran dari platform. Versi Pro memungkinkan Anda menggunakan rekening sendiri dan menerima dana langsung tanpa perantara.',
+    a: 'Versi Gratis menggunakan channel platform dan cocok untuk bisnis kecil atau testing — ada batas nominal per invoice (maks Rp 490.000) dan volume bulanan (maks Rp 5 juta/bulan). Versi Pro memungkinkan Anda menghubungkan rekening sendiri, menerima dana langsung tanpa perantara, dan tanpa batas volume.',
   },
 ]
 
@@ -574,17 +574,18 @@ export default function HomePage() {
                 Mulai tanpa biaya, cocok untuk testing atau bisnis kecil
               </p>
               <ul className="lp-pricing-features">
-                <li><CheckCircle size={16} /> Invoice unlimited</li>
                 <li><CheckCircle size={16} /> Auto verifikasi pembayaran</li>
                 <li><CheckCircle size={16} /> Channel platform (BANK &amp; QRIS)</li>
                 <li><CheckCircle size={16} /> Tanpa biaya per transaksi</li>
                 <li><CheckCircle size={16} /> Webhook &amp; API key</li>
                 <li className="lp-pricing-note"><Wallet size={14} /> Dana masuk ke saldo platform — tersedia H+2, withdraw fee Rp 2.500/pencairan</li>
                 <li className="lp-pricing-note" style={{ marginTop: 4, opacity: 0.8 }}><Shield size={14} /> Nominal invoice + kode unik 2–3 digit untuk verifikasi otomatis</li>
+                {/* <li className="lp-pricing-note" style={{ marginTop: 4, color: 'var(--text-muted)' }}><Zap size={14} /> Cocok untuk transaksi kecil (maks Rp 490rb/invoice)</li> */}
               </ul>
               <Link href="/register" className="btn btn-ghost" style={{ width: '100%', justifyContent: 'center' }}>
                 Mulai Gratis
               </Link>
+              <div style={{ height: 32 }} />{/* spacer agar tombol sejajar dengan Pro */}
             </div>
 
             {/* Berbayar */}
@@ -606,12 +607,16 @@ export default function HomePage() {
               <Link href="/register" className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }}>
                 Langganan Sekarang <ArrowRight size={16} />
               </Link>
+              <div style={{ height: 32 }} />{/* spacer agar tinggi sama dengan card Gratis */}
             </div>
 
           </div>
 
           {/* Note bawah pricing */}
-          <p style={{ textAlign: 'center', marginTop: 20, fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+          <p style={{ textAlign: 'center', marginTop: 16, fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+            🔒 Plan Gratis: gratis selamanya dengan limit volume (maks Rp 490rb/invoice). Butuh lebih? Upgrade ke Pro.
+          </p>
+          <p style={{ textAlign: 'center', marginTop: 8, fontSize: '0.8rem', color: 'var(--text-muted)' }}>
             ✦ Tidak ada potongan fee seperti payment gateway lainnya. Dana Anda, rekening Anda, langsung masuk.
           </p>
         </div>

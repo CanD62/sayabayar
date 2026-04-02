@@ -89,6 +89,7 @@ export const ERROR_CODES = {
   INVOICE_EXPIRED: 'INVOICE_EXPIRED',
   INVOICE_CANCELLED: 'INVOICE_CANCELLED',
   AMOUNT_TOO_LOW: 'AMOUNT_TOO_LOW',
+  AMOUNT_EXCEEDS_FREE_LIMIT: 'AMOUNT_EXCEEDS_FREE_LIMIT',
 
   // Channel
   CHANNEL_NOT_FOUND: 'CHANNEL_NOT_FOUND',
@@ -173,7 +174,21 @@ export const MATCH = {
 // Invoice config
 export const INVOICE = {
   MIN_AMOUNT: 1_000,
-  BANK_TRANSFER_MIN_AMOUNT: 10_000
+  BANK_TRANSFER_MIN_AMOUNT: 10_000,
+
+  // ── Free Tier limits ──────────────────────────────────
+  // Batas maksimal nominal invoice untuk plan Gratis.
+  // Dipilih Rp 490.000 agar kode unik worst-case (+999) tetap < Rp 500.000,
+  // sehingga QRIS MDR 0% selalu terjaga dan platform tidak tekor.
+  FREE_TIER_MAX_AMOUNT: 490_000,
+
+  // Total nilai invoice LUNAS (paid) dalam satu bulan kalender untuk plan Gratis.
+  // Judol butuh volume jauh lebih besar → tidak tertarik.
+  FREE_TIER_MONTHLY_LIMIT: 5_000_000,
+
+  // Maksimal invoice berstatus 'pending' bersamaan untuk plan Gratis.
+  // Merepotkan bot/abuse tanpa mengganggu UMKM kecil.
+  FREE_TIER_MAX_PENDING: 5
 }
 
 // Unique code tiers — based on invoice amount

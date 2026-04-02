@@ -117,11 +117,65 @@ export async function invoiceRoutes(fastify) {
   }, async (request, reply) => {
     const { channel_preference = 'platform', amount, description, customer_name, customer_email, expired_minutes = 1440 } = request.body
 
+    // ── Guard: free tier invoice amount limit ──────────────
+    // User gratis (tidak punya subscription aktif) dibatasi Rp 490.000 per invoice.
+    // Angka ini memastikan total bayar (amount + kode unik max 999) selalu < Rp 500.000,
+    // sehingga QRIS MDR 0% dan platform tidak tekor.
+    const activePlan = getActivePlan(request.client)
+    if (!activePlan && amount > INVOICE.FREE_TIER_MAX_AMOUNT) {
+      return reply.fail(
+        'AMOUNT_EXCEEDS_FREE_LIMIT',
+        `Plan Gratis hanya mendukung invoice hingga Rp ${INVOICE.FREE_TIER_MAX_AMOUNT.toLocaleString('id-ID')}. Upgrade ke Pro untuk nominal lebih besar.`,
+        422
+      )
+    }
+
+    // ── Guard: free tier monthly volume + concurrent pending ──
+    // Jalankan keduanya paralel agar tidak ada latency ganda.
+    if (!activePlan) {
+      const now = new Date()
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+      const monthEnd   = new Date(now.getFullYear(), now.getMonth() + 1, 1)
+
+      const [monthlyPaid, pendingCount] = await Promise.all([
+        // Total nilai invoice LUNAS bulan ini (bulan kalender, bukan rolling 30 hari)
+        db.invoice.aggregate({
+          where: {
+            clientId: request.client.id,
+            status: 'paid',
+            paidAt: { gte: monthStart, lt: monthEnd }
+          },
+          _sum: { amount: true }
+        }),
+        // Jumlah invoice masih pending (belum dibayar / belum expire)
+        db.invoice.count({
+          where: { clientId: request.client.id, status: { in: ['pending', 'user_confirmed'] } }
+        })
+      ])
+
+      const monthlyTotal = Number(monthlyPaid._sum.amount ?? 0)
+      if (monthlyTotal + amount > INVOICE.FREE_TIER_MONTHLY_LIMIT) {
+        const sisa = Math.max(0, INVOICE.FREE_TIER_MONTHLY_LIMIT - monthlyTotal)
+        return reply.fail(
+          'AMOUNT_EXCEEDS_FREE_LIMIT',
+          `Batas volume bulanan Plan Gratis (Rp ${(INVOICE.FREE_TIER_MONTHLY_LIMIT / 1_000_000).toFixed(0)} juta/bulan) hampir tercapai. Sisa kuota bulan ini: Rp ${sisa.toLocaleString('id-ID')}. Upgrade ke Pro untuk volume tidak terbatas.`,
+          422
+        )
+      }
+
+      if (pendingCount >= INVOICE.FREE_TIER_MAX_PENDING) {
+        return reply.fail(
+          'AMOUNT_EXCEEDS_FREE_LIMIT',
+          `Plan Gratis hanya boleh memiliki ${INVOICE.FREE_TIER_MAX_PENDING} invoice aktif (pending/menunggu konfirmasi) secara bersamaan. Selesaikan atau batalkan invoice yang ada sebelum membuat yang baru.`,
+          422
+        )
+      }
+    }
+
     // ── Guard: channel preference validation ───────────────
     if (channel_preference === 'client') {
       // Must be on a plan that allows own channels
-      const planInfo = getActivePlan(request.client)
-      if (!planInfo?.plan?.canAddOwnChannel) {
+      if (!activePlan?.plan?.canAddOwnChannel) {
         return reply.fail('PLAN_FEATURE_UNAVAILABLE', 'Plan Anda tidak mendukung penggunaan channel sendiri', 403)
       }
 

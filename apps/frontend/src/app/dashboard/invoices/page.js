@@ -10,6 +10,9 @@ import { SkeletonTable } from '@/components/Skeleton'
 
 import { fmt, getInvoiceStatus, INVOICE_STATUS } from '@/lib/format'
 
+// Harus sinkron dengan INVOICE.FREE_TIER_MAX_AMOUNT di backend constants
+const FREE_TIER_MAX_AMOUNT = 490_000
+
 
 const STAT_CONFIG = [
   { key: '', label: 'Semua', Icon: Layers, color: '#10b981', glow: 'rgba(16,185,129,0.2)' },
@@ -27,6 +30,7 @@ export default function InvoicesPage() {
   const [invoices, setInvoices] = useState([])
   const [canAddOwnChannel, setCanAddOwnChannel] = useState(false)
   const [hasOwnChannel, setHasOwnChannel] = useState(false)
+  const [isFreePlan, setIsFreePlan] = useState(false)
   const [loading, setLoading] = useState(true)
   const [showCreate, setShowCreate] = useState(false)
   const [creating, setCreating] = useState(false)
@@ -70,6 +74,8 @@ export default function InvoicesPage() {
       setCanAddOwnChannel(canOwn)
       setHasOwnChannel(ownChannels.length > 0)
       setStats(st.data)
+      // User gratis = tidak ada plan aktif dari subscription
+      setIsFreePlan(!sub.data?.plan)
     }).finally(() => setLoading(false))
   }
   useEffect(() => { load(filterStatus) }, [filterStatus])
@@ -93,6 +99,8 @@ export default function InvoicesPage() {
     const amount = parseFloat(form.amount)
     if (!form.amount || isNaN(amount)) e.amount = 'Masukkan nominal yang valid'
     else if (amount < 1000) e.amount = 'Minimal Rp 1.000'
+    else if (isFreePlan && amount > FREE_TIER_MAX_AMOUNT)
+      e.amount = `Plan Gratis hanya mendukung invoice hingga Rp ${FREE_TIER_MAX_AMOUNT.toLocaleString('id-ID')}. Upgrade ke Pro untuk nominal lebih besar.`
     else if (amount > 100000000) e.amount = 'Maksimal Rp 100.000.000'
     if (form.customer_email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.customer_email)) {
       e.customer_email = 'Format email tidak valid'
@@ -456,17 +464,43 @@ export default function InvoicesPage() {
             <form onSubmit={handleCreate}>
               <div className="form-group">
                 <label className="form-label">Jumlah (Rp) *</label>
-                <input type="text" className="form-input" placeholder="100.000" inputMode="numeric"
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="100.000"
+                  inputMode="numeric"
                   value={form.amount ? fmt(form.amount) : ''}
+                  style={isFreePlan && parseFloat(form.amount) > FREE_TIER_MAX_AMOUNT
+                    ? { borderColor: 'var(--error, #ef4444)' }
+                    : {}}
                   onChange={e => {
                     const raw = e.target.value.replace(/\D/g, '')
                     setForm({ ...form, amount: raw })
-                    setErrors({ ...errors, amount: null })
+                    // Real-time clear error jika sudah dalam batas
+                    if (isFreePlan && parseFloat(raw) <= FREE_TIER_MAX_AMOUNT) {
+                      setErrors(prev => ({ ...prev, amount: null }))
+                    }
                   }}
-                  required />
+                  required
+                />
+                {/* Info limit untuk user gratis */}
+                {isFreePlan && !form.amount && (
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <span style={{ opacity: 0.7 }}>🔒</span>
+                    Plan Gratis: maks <strong style={{ color: 'var(--text-secondary)' }}>Rp {FREE_TIER_MAX_AMOUNT.toLocaleString('id-ID')}</strong> per invoice
+                  </div>
+                )}
+                {/* Preview nominal + warning real-time jika melebihi limit */}
                 {form.amount && (
-                  <div style={{ fontSize: '0.8rem', color: 'var(--accent)', marginTop: 4, fontWeight: 600 }}>
+                  <div style={{ fontSize: '0.8rem', marginTop: 4, fontWeight: 600,
+                    color: isFreePlan && parseFloat(form.amount) > FREE_TIER_MAX_AMOUNT
+                      ? 'var(--error, #ef4444)'
+                      : 'var(--accent)'
+                  }}>
                     = Rp {fmt(form.amount)}
+                    {isFreePlan && parseFloat(form.amount) > FREE_TIER_MAX_AMOUNT && (
+                      <span style={{ fontWeight: 400, marginLeft: 6 }}>— melewati batas Plan Gratis</span>
+                    )}
                   </div>
                 )}
                 {errors.amount && <span className="form-error">{errors.amount}</span>}
