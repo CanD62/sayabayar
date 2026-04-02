@@ -64,7 +64,7 @@ export async function scrapeQrisBca(mainPage, context, config, isLoggedIn = fals
             clearTimeout(saveSessionDebounce)
             saveSessionDebounce = setTimeout(() => {
               saveSession(channelId, page).catch(() => {})
-            }, 5000)
+            }, 500)  // 500ms — bukan 5s, agar token segera tersimpan ke Redis sebelum retry berikutnya
           }
         } else if (data.error === 'invalid_grant') {
           const desc = data.error_description || ''
@@ -127,12 +127,13 @@ async function attemptFetch(page, config, channelId, isLoggedIn, state, retryCou
     }
 
     // ── Navigate to home ───────────────────────────────────
-    // Track 401 responses during navigation
-    let got401 = false
+    // Catatan: BCA SPA menggunakan Angular HTTP Interceptor untuk auto-refresh token.
+    // Saat access token expired: request → 401 → Angular call /token → dapat token baru → retry request.
+    // Kita log 401 untuk visibility, tapi TIDAK jadikan alasan retry jika navOk=true,
+    // karena Angular sudah handle sendiri dan halaman berhasil dimuat.
     const check401 = (response) => {
       if (response.status() === 401) {
-        console.log(`[QRIS BCA] ❌ 401 on: ${response.url()}`)
-        got401 = true
+        console.log(`[QRIS BCA] ❌ 401 on: ${response.url()} (Angular akan auto-refresh token)`)
       }
     }
     page.on('response', check401)
@@ -140,8 +141,8 @@ async function attemptFetch(page, config, channelId, isLoggedIn, state, retryCou
     const navOk = await navigateToHome(page, options, state)
     page.off('response', check401)
 
-    if (got401 || !navOk) {
-      console.log('[QRIS BCA] ⚠️ Navigation failed (401 or error)')
+    if (!navOk) {
+      console.log('[QRIS BCA] ⚠️ Navigation failed (redirect ke login atau timeout)')
       if (retryCount < MAX_RETRIES - 1) {
         console.log('[QRIS BCA] 🔄 Retrying...')
         await page.waitForTimeout(1000)
