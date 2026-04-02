@@ -4,6 +4,7 @@
 import { getDb, disconnectDb } from '@payment-gateway/shared/db'
 import { browserPool } from './browserPool.js'
 import { startScheduler, stopScheduler } from './scheduler.js'
+import { scrapeQueue } from './queues.js'
 import { startScrapeWorker } from './workers/scrapeWorker.js'
 import { startMatchWorker } from './workers/matchWorker.js'
 import { startWebhookWorker } from './workers/webhookWorker.js'
@@ -57,6 +58,25 @@ if (activeChannels.length > 0) {
   }
   if (!resetOk) {
     console.warn('⚠️  channelState reset skipped — channels will scrape on their existing schedule')
+  }
+
+  // ── Clear stale BullMQ jobs so scheduler can add fresh ones ──
+  // Setelah restart, job lama (active/waiting/delayed) masih ada di Redis.
+  // BullMQ butuh 30-60s untuk detect stalled job — tanpa ini scraper bisa
+  // delay lama sebelum jalan. Hapus semua job lama agar scheduler bebas.
+  let clearedCount = 0
+  for (const ch of activeChannels) {
+    const jobId = `scrape-${ch.id}`
+    try {
+      const job = await scrapeQueue.getJob(jobId)
+      if (job) {
+        await job.remove()
+        clearedCount++
+      }
+    } catch { /* ignore */ }
+  }
+  if (clearedCount > 0) {
+    console.log(`🧹 Cleared ${clearedCount} stale BullMQ job(s) — fresh start`)
   }
 }
 
