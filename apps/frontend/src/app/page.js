@@ -69,7 +69,7 @@ const STEPS = [
 const STATS = [
   { value: '10.000+', label: 'Invoice Diproses' },
   { value: '99.9%', label: 'Uptime' },
-  { value: '<10 detik', label: 'Waktu Verifikasi' },
+  { value: '<30 detik', label: 'Waktu Verifikasi' },
   { value: '500+', label: 'Bisnis Terdaftar' },
 ]
 
@@ -249,14 +249,37 @@ function randomInvoice() {
   return `INV-${ymd}-${num}`
 }
 
+// Waktu acak — bias sesuai mode traffic
+// burst → cenderung "baru saja" / detik
+// normal/sepi → cenderung dalam menit
+function randomTimeLabel(mode = 'normal') {
+  const r = Math.random()
+  if (mode === 'burst') {
+    // Sering baru saja atau detik, jarang menit
+    if (r < 0.45) return 'baru saja dibayar ✓'
+    if (r < 0.80) {
+      const secs = Math.floor(5 + Math.random() * 55)
+      return `${secs} detik yang lalu ✓`
+    }
+    const mins = Math.floor(1 + Math.random() * 5)
+    return `${mins} menit yang lalu ✓`
+  }
+  // normal / sepi — lebih banyak menit
+  if (r < 0.08) return 'baru saja dibayar ✓'
+  if (r < 0.25) {
+    const secs = Math.floor(15 + Math.random() * 45)
+    return `${secs} detik yang lalu ✓`
+  }
+  const mins = Math.floor(1 + Math.random() * 29)
+  return `${mins} menit yang lalu ✓`
+}
+
 function PaymentToast() {
   const [visible, setVisible] = useState(false)
   const [current, setCurrent] = useState(null)
-  const [elapsed, setElapsed] = useState(0)   // detik sejak toast muncul (live counter)
 
   const hideTimer = useRef(null)
   const nextTimer = useRef(null)
-  const tickTimer = useRef(null)
 
   // Cleanup semua timer saat unmount
   useEffect(() => {
@@ -266,42 +289,48 @@ function PaymentToast() {
       clearTimeout(init)
       clearTimeout(hideTimer.current)
       clearTimeout(nextTimer.current)
-      clearInterval(tickTimer.current)
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  function scheduleShow() {
+  function scheduleShow(mode = 'normal') {
     // Pilih channel secara acak penuh, bukan iterasi
     const channel = CHANNELS[Math.floor(Math.random() * CHANNELS.length)]
+    const amount = randomAmount(channel)
     setCurrent({
       channel,
       name: randomName(),
-      amount: randomAmount(channel),
+      amount,
       invoice: randomInvoice(),
+      timeLabel: randomTimeLabel(mode),
     })
-    setElapsed(0)
     setVisible(true)
 
-    // Live counter — tick setiap detik
-    let sec = 0
-    clearInterval(tickTimer.current)
-    tickTimer.current = setInterval(() => { sec++; setElapsed(sec) }, 1000)
+    // Nominal besar → toast tampil sedikit lebih lama (terasa lebih penting)
+    // base 3–4.5 dtk + bonus hingga 1.5 dtk untuk transaksi ≥ 500rb
+    const bigBonus = amount >= 500000 ? Math.random() * 1500 : 0
+    const visibleMs = 3000 + Math.random() * 1500 + bigBonus
 
-    // Berapa lama toast muncul: 3–5 detik (acak)
-    const visibleMs = 3000 + Math.random() * 2000
     hideTimer.current = setTimeout(() => {
-      clearInterval(tickTimer.current)
       setVisible(false)
 
-      // Jeda sebelum toast berikutnya: 7–18 detik (acak & lebih bervariasi)
-      const gapMs = 7000 + Math.random() * 11000
-      nextTimer.current = setTimeout(() => scheduleShow(), gapMs)
+      // Distribusi natural: burst / normal / sepi
+      const rng = Math.random()
+      let nextMode, gapMs
+      if (rng < 0.20) {
+        nextMode = 'burst'
+        gapMs = 2000 + Math.random() * 4000    // 2–6 dtk
+      } else if (rng < 0.70) {
+        nextMode = 'normal'
+        gapMs = 10000 + Math.random() * 15000  // 10–25 dtk
+      } else {
+        nextMode = 'quiet'
+        gapMs = 30000 + Math.random() * 30000  // 30–60 dtk
+      }
+      nextTimer.current = setTimeout(() => scheduleShow(nextMode), gapMs)
     }, visibleMs)
   }
 
-  const timeLabel = elapsed === 0
-    ? 'baru saja dibayar ✓'
-    : `${elapsed} detik yang lalu ✓`
+  const timeLabel = current?.timeLabel ?? 'baru saja dibayar ✓'
 
   if (!current) return null
 
