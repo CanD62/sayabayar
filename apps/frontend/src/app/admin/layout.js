@@ -1,5 +1,5 @@
 'use client'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useAuth } from '@/lib/AuthContext'
 import { useRouter, usePathname } from 'next/navigation'
 import Link from 'next/link'
@@ -22,6 +22,7 @@ export default function AdminLayout({ children }) {
   const { user, loading, logout } = useAuth()
   const router = useRouter()
   const pathname = usePathname()
+  const [sidebarOpen, setSidebarOpen] = useState(false)
 
   useEffect(() => {
     if (!loading) {
@@ -37,7 +38,11 @@ export default function AdminLayout({ children }) {
 
   return (
     <div className="layout">
-      <aside className="sidebar open" style={{ background: 'linear-gradient(180deg, #0f1117 0%, #131620 100%)' }}>
+      <button className="mobile-toggle" onClick={() => setSidebarOpen(!sidebarOpen)}>
+        {sidebarOpen ? '✕' : '☰'}
+      </button>
+      <div className={`sidebar-overlay ${sidebarOpen ? 'open' : ''}`} onClick={() => setSidebarOpen(false)} />
+      <aside className={`sidebar ${sidebarOpen ? 'open' : ''}`} style={{ background: 'linear-gradient(180deg, #0f1117 0%, #131620 100%)' }}>
         <div className="sidebar-logo">
           <LogoIcon size={20} />
           <span className="logo-text">Admin Panel</span>
@@ -66,6 +71,7 @@ export default function AdminLayout({ children }) {
                 key={item.href}
                 href={item.href}
                 className={`sidebar-link ${active ? 'active' : ''}`}
+                onClick={() => setSidebarOpen(false)}
               >
                 <Icon size={18} />
                 {item.label}
@@ -76,7 +82,7 @@ export default function AdminLayout({ children }) {
 
         {/* Back to merchant dashboard */}
         <div style={{ padding: '0 12px', marginTop: 8 }}>
-          <Link href="/dashboard" className="btn btn-ghost btn-sm" style={{ width: '100%', justifyContent: 'flex-start', gap: 8 }}>
+          <Link href="/dashboard" className="btn btn-ghost btn-sm" style={{ width: '100%', justifyContent: 'flex-start', gap: 8 }} onClick={() => setSidebarOpen(false)}>
             ← Dashboard Merchant
           </Link>
         </div>
