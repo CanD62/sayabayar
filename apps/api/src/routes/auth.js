@@ -44,8 +44,13 @@ export async function authRoutes(fastify) {
   fastify.post('/register', {
     config: {
       rateLimit: {
-        max: 3,
+        max: 5,
         timeWindow: '1 hour',
+        // Berbasis email (bukan IP) — user dari NAT/proxy yang sama tidak saling kena limit
+        keyGenerator: (req) => {
+          const email = req.body?.email
+          return email ? `register:email:${email.toLowerCase()}` : req.ip
+        },
         errorResponseBuilder: () => ({
           success: false,
           error: { code: 'RATE_LIMIT_EXCEEDED', message: 'Terlalu banyak percobaan registrasi. Coba lagi dalam 1 jam.' }
