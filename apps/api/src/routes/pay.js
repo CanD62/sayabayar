@@ -206,6 +206,7 @@ export async function payRoutes(fastify) {
           select: {
             id: true,
             channelType: true,
+            channelOwner: true,
             accountName: true,
             accountNumber: true,
             qrisData: true
@@ -240,6 +241,7 @@ export async function payRoutes(fastify) {
       data.payment_channel = {
         id: invoice.paymentChannel.id,
         channel_type: invoice.paymentChannel.channelType,
+        channel_owner: invoice.paymentChannel.channelOwner,
         account_name: invoice.paymentChannel.accountName,
         account_number: invoice.paymentChannel.accountNumber,
         qris_data: invoice.paymentChannel.qrisData || null
@@ -359,10 +361,11 @@ export async function payRoutes(fastify) {
     if (invoice.paymentChannelId) {
       const existingChannel = await db.paymentChannel.findUnique({
         where: { id: invoice.paymentChannelId },
-        select: { channelType: true, accountName: true, accountNumber: true, qrisData: true }
+        select: { channelType: true, channelOwner: true, accountName: true, accountNumber: true, qrisData: true }
       })
       return reply.success({
         channel_type: existingChannel?.channelType,
+        channel_owner: existingChannel?.channelOwner,
         account_name: existingChannel?.accountName,
         account_number: existingChannel?.accountNumber,
         qris_data: existingChannel?.qrisData || null,
@@ -430,6 +433,7 @@ export async function payRoutes(fastify) {
 
     return reply.success({
       channel_type: channel.channelType,
+      channel_owner: channel.channelOwner,
       account_name: channel.accountName,
       account_number: channel.accountNumber,
       qris_data: channel.qrisData || null,

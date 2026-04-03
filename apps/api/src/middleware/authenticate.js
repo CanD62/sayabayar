@@ -122,10 +122,22 @@ export function checkPlanAccess(permission) {
 
 /**
  * Helper: get active plan info from request.client
+ * Returns null jika tidak ada plan ATAU plan adalah free tier.
+ * Free plan dianggap "tidak berlangganan" untuk keperluan guard limit.
  */
 export function getActivePlan(client) {
   const sub = client.subscriptions?.[0]
-  return sub ? { subscription: sub, plan: sub.plan } : null
+  if (!sub || sub.plan?.planType === 'free') return null
+  return { subscription: sub, plan: sub.plan }
+}
+
+/**
+ * Helper: cek apakah client adalah free tier
+ * (tidak ada subscription aktif, atau subscription-nya adalah free plan)
+ */
+export function isFreeTier(client) {
+  const sub = client.subscriptions?.[0]
+  return !sub || sub.plan?.planType === 'free'
 }
 
 /**

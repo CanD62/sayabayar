@@ -397,7 +397,9 @@ export async function adminRoutes(fastify) {
       db.invoice.findMany({
         where,
         include: {
-          client: { select: { id: true, name: true, email: true } },
+          client: { select: { id: true, name: true, email: true, subscriptions: {
+            where: { status: 'active' }, include: { plan: true }, take: 1
+          } } },
           paymentChannel: { select: { channelType: true, accountName: true } },
         },
         orderBy: { createdAt: 'desc' },
@@ -413,6 +415,7 @@ export async function adminRoutes(fastify) {
       client_id: i.clientId,
       client_name: i.client.name,
       client_email: i.client.email,
+      client_plan_type: i.client.subscriptions?.[0]?.plan?.planType || 'free',
       amount: Number(i.amount),
       unique_code: i.uniqueCode,
       amount_unique: Number(i.amountUnique),

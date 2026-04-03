@@ -237,6 +237,34 @@ function CustomerCard({ invoice }) {
   )
 }
 
+// ─── Channel Owner Disclaimer ───────────────────────────────────────────────
+
+function OwnerDisclaimer({ channelOwner }) {
+  if (!channelOwner) return null
+  const isClient = channelOwner === 'client'
+  return (
+    <div style={{
+      display: 'flex',
+      alignItems: 'flex-start',
+      gap: 10,
+      padding: '10px 14px',
+      borderRadius: 10,
+      background: isClient ? 'rgba(16,185,129,0.06)' : 'rgba(245,158,11,0.06)',
+      border: `1px solid ${isClient ? 'rgba(16,185,129,0.18)' : 'rgba(245,158,11,0.18)'}`,
+      marginBottom: 12,
+    }}>
+      <span style={{ fontSize: '1rem', flexShrink: 0, marginTop: 1 }}>
+        {isClient ? '🏦' : '🔄'}
+      </span>
+      <span style={{ fontSize: '0.76rem', color: 'rgba(255,255,255,0.55)', lineHeight: 1.55 }}>
+        {isClient
+          ? <>Transfer dikirim <strong style={{ color: 'rgba(255,255,255,0.8)' }}>langsung ke rekening penjual</strong>. SayaBayar hanya memverifikasi pembayaran secara otomatis.</>
+          : <>Pembayaran diterima oleh <strong style={{ color: 'rgba(255,255,255,0.8)' }}>SayaBayar sebagai perantara</strong>, dan akan diteruskan ke penjual.</>}
+      </span>
+    </div>
+  )
+}
+
 // ─── Main Page ──────────────────────────────────────────────────────────────
 
 export default function PayPage() {
@@ -350,6 +378,7 @@ export default function PayPage() {
         expired_at: d.expired_at,
         payment_channel: {
           channel_type: d.channel_type,
+          channel_owner: d.channel_owner,
           account_name: d.account_name,
           account_number: d.account_number,
           qris_data: d.qris_data
@@ -584,6 +613,8 @@ export default function PayPage() {
             </div>
           )}
 
+          <OwnerDisclaimer channelOwner={invoice.available_channels?.[0]?.channel_owner} />
+
           <div className="pay2-powered">🔒 Pembayaran aman &amp; terverifikasi oleh SayaBayar</div>
         </div>
       </div>
@@ -703,6 +734,8 @@ export default function PayPage() {
             mono
           />
         </div>
+
+        <OwnerDisclaimer channelOwner={ch?.channel_owner} />
 
         {/* Status */}
         <div className={`pay2-status-pill ${status === 'user_confirmed' ? 'processing' : 'waiting'}`}>

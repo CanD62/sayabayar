@@ -112,6 +112,18 @@ export default function AdminInvoicesPage() {
                     <td>
                       <div style={{ fontWeight: 600, fontSize: '0.82rem' }}>{inv.client_name}</div>
                       <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{inv.client_email}</div>
+                      <span style={{
+                        display: 'inline-block', marginTop: 3,
+                        fontSize: '0.6rem', fontWeight: 700, letterSpacing: '0.05em',
+                        padding: '1px 6px', borderRadius: 99, textTransform: 'uppercase',
+                        background: inv.client_plan_type === 'free'
+                          ? 'rgba(148,163,184,0.15)' : 'rgba(16,185,129,0.15)',
+                        color: inv.client_plan_type === 'free'
+                          ? 'var(--text-muted)' : '#10b981',
+                        border: `1px solid ${inv.client_plan_type === 'free' ? 'rgba(148,163,184,0.2)' : 'rgba(16,185,129,0.3)'}`,
+                      }}>
+                        {inv.client_plan_type === 'free' ? 'Gratis' : 'Pro'}
+                      </span>
                     </td>
                     <td style={{ fontSize: '0.82rem' }}>
                       {inv.customer_name || <span style={{ color: 'var(--text-muted)' }}>—</span>}
