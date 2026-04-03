@@ -117,17 +117,16 @@ export async function invoiceRoutes(fastify) {
   }, async (request, reply) => {
     const { channel_preference = 'platform', amount, description, customer_name, customer_email, expired_minutes = 1440 } = request.body
 
-    // ── Guard: free tier invoice amount limit ──────────────
-    // User gratis (tidak punya subscription aktif) dibatasi Rp 490.000 per invoice.
+    // ── Guard: platform channel invoice amount limit ──────────────
+    // Siapapun yang pakai channel platform (free maupun Pro backup) dibatasi Rp 490.000 per invoice.
     // Angka ini memastikan total bayar (amount + kode unik max 999) selalu < Rp 500.000,
     // sehingga QRIS MDR 0% dan platform tidak tekor.
     const activePlan = getActivePlan(request.client)
-    if (!activePlan && amount > INVOICE.FREE_TIER_MAX_AMOUNT) {
-      return reply.fail(
-        'AMOUNT_EXCEEDS_FREE_LIMIT',
-        `Plan Gratis hanya mendukung invoice hingga Rp ${INVOICE.FREE_TIER_MAX_AMOUNT.toLocaleString('id-ID')}. Upgrade ke Pro untuk nominal lebih besar.`,
-        422
-      )
+    if (channel_preference === 'platform' && amount > INVOICE.FREE_TIER_MAX_AMOUNT) {
+      const msg = activePlan
+        ? `Channel platform hanya mendukung invoice hingga Rp ${INVOICE.FREE_TIER_MAX_AMOUNT.toLocaleString('id-ID')}. Gunakan channel sendiri untuk nominal lebih besar.`
+        : `Plan Gratis hanya mendukung invoice hingga Rp ${INVOICE.FREE_TIER_MAX_AMOUNT.toLocaleString('id-ID')}. Upgrade ke Pro untuk nominal lebih besar.`
+      return reply.fail('AMOUNT_EXCEEDS_PLATFORM_LIMIT', msg, 422)
     }
 
     // ── Guard: free tier monthly volume + concurrent pending ──

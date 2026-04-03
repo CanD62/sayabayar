@@ -99,8 +99,10 @@ export default function InvoicesPage() {
     const amount = parseFloat(form.amount)
     if (!form.amount || isNaN(amount)) e.amount = 'Masukkan nominal yang valid'
     else if (amount < 1000) e.amount = 'Minimal Rp 1.000'
-    else if (isFreePlan && amount > FREE_TIER_MAX_AMOUNT)
-      e.amount = `Plan Gratis hanya mendukung invoice hingga Rp ${FREE_TIER_MAX_AMOUNT.toLocaleString('id-ID')}. Upgrade ke Pro untuk nominal lebih besar.`
+    else if (form.channel_preference === 'platform' && amount > FREE_TIER_MAX_AMOUNT)
+      e.amount = isFreePlan
+        ? `Plan Gratis hanya mendukung invoice hingga Rp ${FREE_TIER_MAX_AMOUNT.toLocaleString('id-ID')}. Upgrade ke Pro untuk nominal lebih besar.`
+        : `Channel platform hanya mendukung invoice hingga Rp ${FREE_TIER_MAX_AMOUNT.toLocaleString('id-ID')}. Gunakan channel sendiri untuk nominal lebih besar.`
     else if (amount > 100000000) e.amount = 'Maksimal Rp 100.000.000'
     if (form.customer_email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.customer_email)) {
       e.customer_email = 'Format email tidak valid'
@@ -470,36 +472,36 @@ export default function InvoicesPage() {
                   placeholder="100.000"
                   inputMode="numeric"
                   value={form.amount ? fmt(form.amount) : ''}
-                  style={isFreePlan && parseFloat(form.amount) > FREE_TIER_MAX_AMOUNT
+                  style={form.channel_preference === 'platform' && parseFloat(form.amount) > FREE_TIER_MAX_AMOUNT
                     ? { borderColor: 'var(--error, #ef4444)' }
                     : {}}
                   onChange={e => {
                     const raw = e.target.value.replace(/\D/g, '')
                     setForm({ ...form, amount: raw })
                     // Real-time clear error jika sudah dalam batas
-                    if (isFreePlan && parseFloat(raw) <= FREE_TIER_MAX_AMOUNT) {
+                    if (form.channel_preference === 'platform' && parseFloat(raw) <= FREE_TIER_MAX_AMOUNT) {
                       setErrors(prev => ({ ...prev, amount: null }))
                     }
                   }}
                   required
                 />
-                {/* Info limit untuk user gratis */}
-                {isFreePlan && !form.amount && (
+                {/* Info limit untuk semua user yang pakai channel platform */}
+                {form.channel_preference === 'platform' && !form.amount && (
                   <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
                     <span style={{ opacity: 0.7 }}>🔒</span>
-                    Plan Gratis: maks <strong style={{ color: 'var(--text-secondary)' }}>Rp {FREE_TIER_MAX_AMOUNT.toLocaleString('id-ID')}</strong> per invoice
+                    Channel Platform: maks <strong style={{ color: 'var(--text-secondary)' }}>Rp {FREE_TIER_MAX_AMOUNT.toLocaleString('id-ID')}</strong> per invoice
                   </div>
                 )}
                 {/* Preview nominal + warning real-time jika melebihi limit */}
                 {form.amount && (
                   <div style={{ fontSize: '0.8rem', marginTop: 4, fontWeight: 600,
-                    color: isFreePlan && parseFloat(form.amount) > FREE_TIER_MAX_AMOUNT
+                    color: form.channel_preference === 'platform' && parseFloat(form.amount) > FREE_TIER_MAX_AMOUNT
                       ? 'var(--error, #ef4444)'
                       : 'var(--accent)'
                   }}>
                     = Rp {fmt(form.amount)}
-                    {isFreePlan && parseFloat(form.amount) > FREE_TIER_MAX_AMOUNT && (
-                      <span style={{ fontWeight: 400, marginLeft: 6 }}>— melewati batas Plan Gratis</span>
+                    {form.channel_preference === 'platform' && parseFloat(form.amount) > FREE_TIER_MAX_AMOUNT && (
+                      <span style={{ fontWeight: 400, marginLeft: 6 }}>— melewati batas channel platform</span>
                     )}
                   </div>
                 )}
