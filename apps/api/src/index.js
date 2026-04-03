@@ -26,13 +26,38 @@ import { adminRoutes } from './routes/admin.js'
 
 const PORT = parseInt(process.env.API_PORT || '3001')
 
+// Helper: ambil IP real pengunjung dari header Cloudflare / proxy
+// Urutan prioritas: CF-Connecting-IP → X-Forwarded-For (first hop) → req.ip
+function getRealIp(req) {
+  const cf = req.headers['cf-connecting-ip']
+  if (cf) return cf.trim()
+  const xff = req.headers['x-forwarded-for']
+  if (xff) return xff.split(',')[0].trim()
+  return req.ip
+}
+
 async function buildApp() {
   const app = Fastify({
     logger: {
-      level: process.env.NODE_ENV === 'development' ? 'info' : 'warn'
+      level: 'info',
+      serializers: {
+        // Sertakan IP real (CF-Connecting-IP → X-Forwarded-For → socket) di setiap log request
+        req(req) {
+          const cf  = req.headers?.['cf-connecting-ip']
+          const xff = req.headers?.['x-forwarded-for']?.split(',')[0]?.trim()
+          const ip  = cf ?? xff ?? req.socket?.remoteAddress ?? '-'
+          return {
+            method: req.method,
+            url:    req.url,
+            ip,
+          }
+        }
+      }
     },
     requestIdHeader: 'x-request-id',
-    genReqId: () => crypto.randomUUID()
+    genReqId: () => crypto.randomUUID(),
+    // Percayai proxy internal (NPM) agar X-Forwarded-For diteruskan dengan benar
+    trustProxy: true
   })
 
   // ── Global Plugins ────────────────────────────────────────
@@ -51,13 +76,12 @@ async function buildApp() {
   await app.register(rateLimit, {
     max: 120,
     timeWindow: '1 minute',
-    // Rate limit berbasis API key / client ID, fallback ke IP
-    // Mencegah: (1) abuse multi-IP, (2) satu IP shared (NAT/proxy) kena limit bareng
+    // Rate limit berbasis API key / client ID, fallback ke IP real pengunjung
     keyGenerator: (req) => {
       // API key auth — gunakan hash key sebagai identifier
       const apiKey = req.headers['x-api-key']
       if (apiKey) return `apikey:${apiKey}`
-      // JWT auth — gunakan client ID dari token (tanpa decode penuh, pakai header+payload saja)
+      // JWT auth — gunakan client ID dari token
       const auth = req.headers.authorization
       if (auth?.startsWith('Bearer ')) {
         try {
@@ -67,8 +91,8 @@ async function buildApp() {
           if (payload.clientId) return `client:${payload.clientId}`
         } catch {}
       }
-      // Fallback: IP address
-      return req.ip
+      // Fallback: IP real (dari Cloudflare header, bukan IP NPM)
+      return getRealIp(req)
     },
     allowList: (req) => {
       // SSE endpoints are long-lived connections — exclude from rate limit
@@ -107,6 +131,15 @@ async function buildApp() {
     status: 'ok',
     timestamp: new Date().toISOString(),
     uptime: process.uptime()
+  }))
+
+  // ── Debug IP ─────────────────────────────────────────────
+  app.get('/debug/ip', async (req) => ({
+    req_ip:           req.ip,
+    real_ip:          getRealIp(req),
+    cf_connecting_ip: req.headers['cf-connecting-ip'] ?? null,
+    x_forwarded_for:  req.headers['x-forwarded-for'] ?? null,
+    x_real_ip:        req.headers['x-real-ip'] ?? null,
   }))
 
   return app
