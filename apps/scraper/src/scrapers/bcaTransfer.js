@@ -271,7 +271,13 @@ async function doLogin(mainPage, username, password) {
           console.log('[BCA Transfer] ⚠️ BCA lockout detected — need to wait')
           throw new Error(`LOCKOUT: ${loginError}`)
         }
-        if (loginError.includes('User ID') || loginError.includes('Password') || loginError.includes('benar')) {
+        if (
+          loginError.includes('User ID') ||
+          loginError.includes('Password') ||
+          loginError.includes('benar') ||
+          loginError.includes('PIN harus Angka') ||
+          loginError.includes('PIN must be Numeric')
+        ) {
           console.log('[BCA Transfer] ❌ Wrong credentials — stopping immediately')
           throw new Error(`CREDENTIAL_ERROR: ${loginError}`)
         }
