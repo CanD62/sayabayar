@@ -9,7 +9,7 @@ let _browser = null
 async function getBrowser() {
   if (!_browser || !_browser.isConnected()) {
     _browser = await chromium.launch({
-      headless: false,
+      headless: true,
       args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
     })
     console.log('[FlipBrowser] Chromium launched')
@@ -91,9 +91,9 @@ export async function inputPin(challengeUrl, pin, wvHeaders = {}) {
   console.log('[FlipBrowser] Starting PIN input for transfer...')
   const browser = await getBrowser()
 
-  const authorization         = wvHeaders['X-AUTHORIZATION'] || wvHeaders['authorization'] || ''
+  const authorization = wvHeaders['X-AUTHORIZATION'] || wvHeaders['authorization'] || ''
   const authorizationCustomer = wvHeaders['X-AUTHORIZATION-CUSTOMER'] || wvHeaders['authorization-customer'] || ''
-  const deviceId              = wvHeaders['X-DEVICE-ID'] || wvHeaders['x-device-id'] || ''
+  const deviceId = wvHeaders['X-DEVICE-ID'] || wvHeaders['x-device-id'] || ''
 
   // Extract authorizeRequestId dari challengeUrl query param
   const authorizeReqId = new URL(challengeUrl).searchParams.get('authorize_request_id') || ''
@@ -116,10 +116,10 @@ export async function inputPin(challengeUrl, pin, wvHeaders = {}) {
 
   // Set cookies untuk autentikasi flamingo
   const cookies = [
-    { name: 'authorization',          value: authorization },
+    { name: 'authorization', value: authorization },
     { name: 'authorization-customer', value: authorizationCustomer },
-    { name: 'deviceId',               value: deviceId },
-    { name: 'authorizeRequestId',     value: encodeURIComponent(authorizeReqId) },
+    { name: 'deviceId', value: deviceId },
+    { name: 'authorizeRequestId', value: encodeURIComponent(authorizeReqId) },
   ].filter(c => c.value)
 
   await context.addCookies(cookies.map(c => ({
@@ -151,7 +151,7 @@ export async function inputPin(challengeUrl, pin, wvHeaders = {}) {
     // Buka halaman PIN
     console.log('[FlipBrowser] Opening challenge URL:', challengeUrl.slice(0, 80) + '...')
     await page.goto(challengeUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 })
-    await page.waitForLoadState('networkidle', { timeout: 8_000 }).catch(() => {})
+    await page.waitForLoadState('networkidle', { timeout: 8_000 }).catch(() => { })
 
     // Tunggu form PIN muncul
     console.log('[FlipBrowser] Waiting for PIN input...')
