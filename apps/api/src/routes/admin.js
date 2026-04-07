@@ -2,15 +2,15 @@
 // Admin-only endpoints — protected by isAdmin middleware
 
 import { authenticate, checkClientStatus, isAdmin } from '../middleware/authenticate.js'
-import { encrypt } from '@payment-gateway/shared/crypto'
+import { encrypt, decrypt } from '@payment-gateway/shared/crypto'
 import { Queue } from 'bullmq'
 
 function getFlipQueue() {
   const url = new URL(process.env.REDIS_URL || 'redis://localhost:6379')
   return new Queue('flip', {
     connection: {
-      host:     url.hostname,
-      port:     parseInt(url.port) || 6379,
+      host: url.hostname,
+      port: parseInt(url.port) || 6379,
       password: url.password || undefined,
       maxRetriesPerRequest: null
     }
@@ -18,7 +18,7 @@ function getFlipQueue() {
 }
 
 export async function adminRoutes(fastify) {
-  const db        = fastify.db
+  const db = fastify.db
   const flipQueue = getFlipQueue()
 
   // All admin routes require: auth + active status + isAdmin
@@ -79,7 +79,7 @@ export async function adminRoutes(fastify) {
       const dateStr = d.toISOString().slice(0, 10)
       const dayEntries = dailyPaid.filter(e => e.paidAt && e.paidAt.toISOString().slice(0, 10) === dateStr)
       const volume = dayEntries.reduce((s, e) => s + Number(e._sum.amount || 0), 0)
-      const count  = dayEntries.reduce((s, e) => s + e._count, 0)
+      const count = dayEntries.reduce((s, e) => s + e._count, 0)
       chartData.push({ date: dateStr, volume, count })
     }
 
@@ -121,11 +121,11 @@ export async function adminRoutes(fastify) {
       querystring: {
         type: 'object',
         properties: {
-          page:     { type: 'integer', minimum: 1, default: 1 },
+          page: { type: 'integer', minimum: 1, default: 1 },
           per_page: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
-          status:   { type: 'string', enum: ['active', 'suspended', 'inactive'] },
-          plan:     { type: 'string', enum: ['free', 'subscription'] },
-          search:   { type: 'string', maxLength: 100 },
+          status: { type: 'string', enum: ['active', 'suspended', 'inactive'] },
+          plan: { type: 'string', enum: ['free', 'subscription'] },
+          search: { type: 'string', maxLength: 100 },
         }
       }
     }
@@ -370,12 +370,12 @@ export async function adminRoutes(fastify) {
       querystring: {
         type: 'object',
         properties: {
-          page:      { type: 'integer', minimum: 1, default: 1 },
-          per_page:  { type: 'integer', minimum: 1, maximum: 100, default: 20 },
-          status:    { type: 'string', enum: ['pending', 'user_confirmed', 'paid', 'expired', 'cancelled'] },
+          page: { type: 'integer', minimum: 1, default: 1 },
+          per_page: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
+          status: { type: 'string', enum: ['pending', 'user_confirmed', 'paid', 'expired', 'cancelled'] },
           client_id: { type: 'string' },
           date_from: { type: 'string' },
-          date_to:   { type: 'string' },
+          date_to: { type: 'string' },
         }
       }
     }
@@ -397,9 +397,13 @@ export async function adminRoutes(fastify) {
       db.invoice.findMany({
         where,
         include: {
-          client: { select: { id: true, name: true, email: true, subscriptions: {
-            where: { status: 'active' }, include: { plan: true }, take: 1
-          } } },
+          client: {
+            select: {
+              id: true, name: true, email: true, subscriptions: {
+                where: { status: 'active' }, include: { plan: true }, take: 1
+              }
+            }
+          },
           paymentChannel: { select: { channelType: true, accountName: true } },
         },
         orderBy: { createdAt: 'desc' },
@@ -491,14 +495,15 @@ export async function adminRoutes(fastify) {
     if (!provider) return reply.fail('RESOURCE_NOT_FOUND', 'Payment provider belum dikonfigurasi.', 404)
 
     return reply.success({
-      email:            provider.email,
-      user_id:          provider.userId,
-      balance:          Number(provider.balance),
-      auto_process:     provider.autoProcess,
+      email: provider.email,
+      user_id: provider.userId,
+      balance: Number(provider.balance),
+      auto_process: provider.autoProcess,
       token_expires_at: provider.tokenExpiresAt,
-      updated_at:       provider.updatedAt,
-      has_token:        !!provider.token,
-      has_pin:          !!provider.pin,
+      updated_at: provider.updatedAt,
+      has_token: !!provider.token,
+      has_refresh: !!provider.refreshToken,
+      has_pin: !!provider.pin,
     })
   })
 
@@ -509,29 +514,31 @@ export async function adminRoutes(fastify) {
       body: {
         type: 'object',
         properties: {
-          email:   { type: 'string', format: 'email' },
+          email: { type: 'string', format: 'email' },
           user_id: { type: 'string', maxLength: 100 },
-          token:   { type: 'string', maxLength: 2000 }, // raw Bearer token dari Flip
-          pin:     { type: 'string', minLength: 6, maxLength: 6, pattern: '^[0-9]{6}$' },
+          token: { type: 'string', maxLength: 2000 }, // raw Bearer token dari Flip
+          refresh_token: { type: 'string', maxLength: 500 },  // Flip refresh token
+          pin: { type: 'string', minLength: 6, maxLength: 6, pattern: '^[0-9]{6}$' },
         }
       }
     }
   }, async (request, reply) => {
-    const { email, user_id, token, pin } = request.body
+    const { email, user_id, token, refresh_token, pin } = request.body
 
     // At least one field required
-    if (!email && !user_id && !token && !pin) {
+    if (!email && !user_id && !token && !refresh_token && !pin) {
       return reply.fail('VALIDATION_ERROR', 'Minimal satu field harus diisi', 422)
     }
 
     const data = {}
-    if (email)   data.email   = email
-    if (user_id) data.userId  = user_id
-    if (token)   data.token   = encrypt(token)
-    if (pin)     data.pin     = encrypt(pin)
+    if (email) data.email = email
+    if (user_id) data.userId = user_id
+    if (token) data.token = encrypt(token)
+    if (refresh_token) data.refreshToken = encrypt(refresh_token)
+    if (pin) data.pin = encrypt(pin)
 
-    // Jika token baru dimasukkan, invalidate tokenExpiresAt supaya lazy-refresh berjalan)
-    if (token)   data.tokenExpiresAt = null
+    // Jika token baru dimasukkan, invalidate tokenExpiresAt supaya lazy-refresh berjalan
+    if (token) data.tokenExpiresAt = null
 
     // Upsert: jika provider belum ada, buat baru
     await db.paymentProvider.upsert({
@@ -541,7 +548,7 @@ export async function adminRoutes(fastify) {
         providerName: 'flip',
         email: email || 'unknown@flip.id',
         token: data.token || encrypt('placeholder'),
-        pin:   data.pin   || encrypt('000000'),
+        pin: data.pin || encrypt('000000'),
         ...data,
       }
     })
@@ -550,15 +557,16 @@ export async function adminRoutes(fastify) {
 
     const updated = await db.paymentProvider.findUnique({ where: { providerName: 'flip' } })
     return reply.success({
-      email:            updated.email,
-      user_id:          updated.userId,
-      balance:          Number(updated.balance),
-      auto_process:     updated.autoProcess,
+      email: updated.email,
+      user_id: updated.userId,
+      balance: Number(updated.balance),
+      auto_process: updated.autoProcess,
       token_expires_at: updated.tokenExpiresAt,
-      updated_at:       updated.updatedAt,
-      has_token:        !!updated.token,
-      has_pin:          !!updated.pin,
-      message:          'Konfigurasi Flip berhasil diperbarui'
+      updated_at: updated.updatedAt,
+      has_token: !!updated.token,
+      has_refresh: !!updated.refreshToken,
+      has_pin: !!updated.pin,
+      message: 'Konfigurasi Flip berhasil diperbarui'
     })
   })
 
@@ -593,9 +601,9 @@ export async function adminRoutes(fastify) {
       querystring: {
         type: 'object',
         properties: {
-          page:     { type: 'integer', minimum: 1, default: 1 },
+          page: { type: 'integer', minimum: 1, default: 1 },
           per_page: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
-          status:   { type: 'string', enum: ['pending', 'processing', 'processed', 'failed', 'rejected'] }
+          status: { type: 'string', enum: ['pending', 'processing', 'processed', 'failed', 'rejected'] }
         }
       }
     }
@@ -678,17 +686,17 @@ export async function adminRoutes(fastify) {
         where: { clientId: withdrawal.clientId },
         data: {
           balanceAvailable: { increment: Number(withdrawal.amount) },
-          totalWithdrawn:   { decrement: Number(withdrawal.amount) }
+          totalWithdrawn: { decrement: Number(withdrawal.amount) }
         }
       }),
       db.balanceLedger.create({
         data: {
-          clientId:    withdrawal.clientId,
+          clientId: withdrawal.clientId,
           withdrawalId: withdrawal.id,
-          type:        'credit_available',
-          amount:      withdrawal.amount,
+          type: 'credit_available',
+          amount: withdrawal.amount,
           availableAt: new Date(),
-          note:        `Refund penarikan ditolak: ${reason}`
+          note: `Refund penarikan ditolak: ${reason}`
         }
       })
     ])
@@ -709,4 +717,505 @@ export async function adminRoutes(fastify) {
       can_add_own_channel: p.canAddOwnChannel,
     })))
   })
+
+  // ── POST /admin/provider/refresh-token ──────────────────
+  // Paksa refresh token Flip sekarang (tidak perlu tunggu expire)
+  fastify.post('/provider/refresh-token', async (request, reply) => {
+    const { createPaymentProviderService } = await import('../services/paymentProvider.js')
+    const { decrypt } = await import('@payment-gateway/shared/crypto')
+    const svc = createPaymentProviderService(db, fastify.redis)
+
+    const provider = await db.paymentProvider.findUnique({ where: { providerName: 'flip' } })
+    if (!provider) return reply.fail('RESOURCE_NOT_FOUND', 'Payment provider belum dikonfigurasi.', 404)
+    if (!provider.token) return reply.fail('VALIDATION_ERROR', 'Token belum ada di database.', 422)
+
+    try {
+      const newToken = await svc.refreshToken(provider)
+
+      // Decode payload untuk response
+      function decodeJwt(t) {
+        try {
+          const b64 = t.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')
+          const padded = b64.padEnd(b64.length + (4 - b64.length % 4) % 4, '=')
+          return JSON.parse(Buffer.from(padded, 'base64').toString('utf8'))
+        } catch { return null }
+      }
+      const payload = decodeJwt(newToken)
+
+      fastify.log.info('[Admin] Flip token refreshed manually')
+      return reply.success({
+        message: 'Token berhasil diperbarui',
+        user_id: payload?.data?.id,
+        device_identifier: payload?.data?.device_identifier,
+        expires_at: payload?.exp ? new Date(payload.exp * 1000).toISOString() : null,
+      })
+    } catch (e) {
+      fastify.log.error('[Admin] Token refresh failed:', e.message)
+      return reply.fail('FLIP_API_ERROR', e.message, 502)
+    }
+  })
+
+  // ── POST /admin/provider/test-connection ─────────────────
+  // Jalankan serangkaian uji coba ke Flip API dan kembalikan hasilnya
+  fastify.post('/provider/test-connection', {
+    schema: {
+      body: {
+        type: 'object',
+        properties: {
+          // Opsional: cek rekening spesifik
+          account_number: { type: 'string', maxLength: 30 },
+          bank: { type: 'string', maxLength: 30 },
+        }
+      }
+    }
+  }, async (request, reply) => {
+    const { createPaymentProviderService } = await import('../services/paymentProvider.js')
+    const { decrypt } = await import('@payment-gateway/shared/crypto')
+    const svc = createPaymentProviderService(db, fastify.redis)
+
+    const provider = await db.paymentProvider.findUnique({ where: { providerName: 'flip' } })
+    if (!provider) return reply.fail('RESOURCE_NOT_FOUND', 'Payment provider belum dikonfigurasi.', 404)
+    if (!provider.token) return reply.fail('VALIDATION_ERROR', 'Token belum ada di database.', 422)
+
+    function decodeJwt(t) {
+      try {
+        const b64 = t.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')
+        const padded = b64.padEnd(b64.length + (4 - b64.length % 4) % 4, '=')
+        return JSON.parse(Buffer.from(padded, 'base64').toString('utf8'))
+      } catch { return null }
+    }
+
+    const results = {}
+
+    // 1. Decode token saat ini
+    const currentToken = decrypt(provider.token)
+    const payload = decodeJwt(currentToken)
+    const now = Math.floor(Date.now() / 1000)
+    results.token_info = {
+      ok: true,
+      user_id: payload?.data?.id,
+      email: payload?.data?.email,
+      device_identifier: payload?.data?.device_identifier,
+      device_model: payload?.data?.device_model,
+      version: payload?.data?.version,
+      expires_at: payload?.exp ? new Date(payload.exp * 1000).toISOString() : null,
+      is_expired: payload?.exp ? payload.exp <= now : true,
+      seconds_remaining: payload?.exp ? Math.max(0, payload.exp - now) : 0,
+    }
+
+    // 2. Refresh token (untuk dapatkan token terbaru)
+    try {
+      const newToken = await svc.refreshToken(provider)
+      const np = decodeJwt(newToken)
+      results.refresh = {
+        ok: true,
+        device_identifier: np?.data?.device_identifier,
+        expires_at: np?.exp ? new Date(np.exp * 1000).toISOString() : null,
+      }
+    } catch (e) {
+      results.refresh = { ok: false, error: e.message }
+    }
+
+    // 3. Ambil token aktif (mungkin sudah diperbarui oleh refresh)
+    let activeToken
+    try {
+      activeToken = await svc.getToken()
+    } catch {
+      activeToken = currentToken
+    }
+
+    // 4. List bank
+    try {
+      const banks = await svc.getBankList()
+      results.bank_list = {
+        ok: true,
+        count: banks.length,
+        sample: banks.filter(b => !b.isEwallet).slice(0, 5).map(b => `${b.code} (${b.name})`),
+      }
+    } catch (e) {
+      results.bank_list = { ok: false, error: e.message }
+    }
+
+    // 5. Saldo Alaflip
+    const userId = results.token_info.user_id || provider.userId
+    if (userId) {
+      try {
+        const balancePayload = decodeJwt(activeToken)
+        const deviceId = balancePayload?.data?.device_identifier
+
+        const balRes = await fetch(
+          `https://customer.flip.id/alaflip/api/v1/users/${userId}/balance`,
+          {
+            method: 'GET',
+            headers: {
+              'Authorization': `Bearer ${activeToken}`,
+              'api-key': 'EDdwAw954mv4VyjpXLXZ5pRehJNXNmhsqdMbPFyaDq28aAhz',
+              'x-internal-api-key': 'VlhObGNsQnliMlpwYkdWQmJtUkJkWFJvWlc1MGFXTmhkR2x2YmxObGNuWnBZMlU2T1RBNQ==',
+              ...(deviceId ? { 'x-device-id': deviceId } : {}),
+              'accept-language': 'en-ID',
+              'content-language': 'en-ID',
+              'content-type': 'application/x-www-form-urlencoded',
+              'Host': 'customer.flip.id',
+              'User-Agent': 'okhttp/4.10.0',
+            }
+          }
+        )
+        const balBody = await balRes.json().catch(() => ({}))
+        results.alaflip_balance = {
+          ok: balRes.ok,
+          balance: balBody?.data?.balance ?? null,
+          status: balBody?.data?.status ?? null,
+          raw: balRes.ok ? undefined : balBody,
+        }
+      } catch (e) {
+        results.alaflip_balance = { ok: false, error: e.message }
+      }
+    } else {
+      results.alaflip_balance = { ok: false, error: 'userId tidak tersedia' }
+    }
+
+    // 6. Cek rekening (opsional)
+    const { account_number, bank } = request.body || {}
+    if (account_number && bank) {
+      try {
+        const acct = await svc.checkAccount(account_number, bank)
+        results.check_account = { ok: true, ...acct }
+      } catch (e) {
+        results.check_account = { ok: false, error: e.message }
+      }
+    }
+
+    fastify.log.info('[Admin] Flip test-connection ran')
+    return reply.success(results)
+  })
+
+  // ── POST /admin/flip-login/activate-alaflip ──────────────
+  // Ambil webview URL dari Flip → forward ke scraper HTTP → activateAlaflip() Playwright → POST /auth-code
+  fastify.post('/flip-login/activate-alaflip', async (request, reply) => {
+    const provider = await db.paymentProvider.findUnique({ where: { providerName: 'flip' } })
+    if (!provider) return reply.fail('NOT_CONFIGURED', 'Provider Flip belum dikonfigurasi', 400)
+    if (!provider.userId) return reply.fail('NO_USER_ID', 'userId belum tersedia, perlu login ulang', 400)
+    if (!provider.pin) return reply.fail('NO_PIN', 'PIN belum dikonfigurasi di provider', 400)
+
+    const token = decrypt(provider.token)
+
+    // Decode device_identifier dari JWT
+    let deviceId
+    try {
+      const b64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')
+      const pad = b64.padEnd(b64.length + (4 - b64.length % 4) % 4, '=')
+      deviceId = JSON.parse(Buffer.from(pad, 'base64').toString())?.data?.device_identifier
+    } catch { /* optional */ }
+
+    // Step 1: Ambil webview URL + headers dari Flip
+    let webviewUrl, wvHeaders
+    try {
+      const res = await fetch(
+        `https://customer.flip.id/alaflip/api/v1/users/${provider.userId}/webview-url`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'api-key': 'EDdwAw954mv4VyjpXLXZ5pRehJNXNmhsqdMbPFyaDq28aAhz',
+            'x-internal-api-key': 'VlhObGNsQnliMlpwYkdWQmJtUkJkWFJvWlc1MGFXTmhkR2x2YmxObGNuWnBZMlU2T1RBNQ==',
+            ...(deviceId ? { 'x-device-id': deviceId } : {}),
+            'content-type': 'application/json',
+            'accept-language': 'en-ID',
+            'content-language': 'en-ID',
+            'Host': 'customer.flip.id',
+            'User-Agent': 'okhttp/4.10.0',
+          },
+          body: JSON.stringify({
+            redirect_url: 'flip://home',
+            url_type: 'linkage',
+            expired_token_redirect_url: 'flip://home',
+            no_cam_permission_url: 'flip://open-camera-permission',
+          })
+        }
+      )
+      const body = await res.json().catch(() => ({}))
+      webviewUrl = body?.data?.url
+      wvHeaders = body?.data?.headers || {}
+      if (!webviewUrl) throw new Error(body?.message || 'Webview URL tidak tersedia')
+      fastify.log.info(`[Admin] Alaflip webview headers: ${Object.keys(wvHeaders).join(', ')}`)
+    } catch (e) {
+      return reply.fail('FLIP_ERROR', `Gagal ambil webview URL: ${e.message}`, 400)
+    }
+
+    fastify.log.info('[Admin] Alaflip webview URL obtained, forwarding to scraper...')
+
+    // Step 2: Panggil scraper HTTP server (synchronous, 30–90 detik)
+    // SCRAPER_URL di-set via env — di production gunakan nama container, contoh: http://sayabayar_scraper:3008
+    const SCRAPER_URL = process.env.SCRAPER_URL || `http://localhost:${process.env.SCRAPER_PORT || '3008'}`
+    try {
+      const scraperRes = await fetch(`${SCRAPER_URL}/alaflip-activate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          webviewUrl,
+          wvHeaders,
+          userId: provider.userId,
+          flipToken: token,
+          deviceId,
+        }),
+        signal: AbortSignal.timeout(110_000),
+      })
+      const scraperBody = await scraperRes.json().catch(() => ({}))
+      if (!scraperRes.ok) throw new Error(scraperBody.error || `Scraper ${scraperRes.status}`)
+
+      fastify.log.info(`[Admin] Alaflip activated (${scraperBody.elapsed_ms}ms)`)
+      return reply.success({
+        message: `Aktivasi Alaflip berhasil! (${Math.round((scraperBody.elapsed_ms || 0) / 1000)}s)`,
+        elapsed_ms: scraperBody.elapsed_ms,
+      })
+    } catch (e) {
+      const isTimeout = e.name === 'TimeoutError'
+      return reply.fail(
+        isTimeout ? 'TIMEOUT' : 'SCRAPER_ERROR',
+        isTimeout ? 'Timeout >110 detik. Cek log scraper.' : `Gagal: ${e.message}`,
+        503
+      )
+    }
+  })
+
+
+  // ══════════════════════════════════════════════════════════
+  // FLIP LOGIN WIZARD (4 langkah)
+  //   POST /admin/flip-login/check        → cek apakah nomor terdaftar
+  //   POST /admin/flip-login/request-otp  → kirim OTP via WA
+  //   POST /admin/flip-login/verify-otp   → verifikasi OTP → simpan temp token di Redis
+  //   POST /admin/flip-login/finalize     → verify PIN + device → simpan ke DB
+  // ══════════════════════════════════════════════════════════
+
+  // Konstanta perangkat yang dipakai (konsisten dengan device_identifier di JWT)
+  const FLIP_DEVICE = {
+    identifier: '7e3d6420-fee5-4ac9-b8d2-c6b3aca9b8e5',
+    model: 'SM-G998B',
+    name: 'samsung-galaxy-s21-ultra',  // label device di akun Flip (tidak mempengaruhi auth)
+    os_version: 'Android 13',
+    version: '402',
+  }
+
+  // Header dasar untuk unauthenticated requests
+  function flipBaseHeaders(token = null, contentType = 'application/json') {
+    return {
+      'api-key': 'EDdwAw954mv4VyjpXLXZ5pRehJNXNmhsqdMbPFyaDq28aAhz',
+      'x-internal-api-key': 'VlhObGNsQnliMlpwYkdWQmJtUkJkWFJvWlc1MGFXTmhkR2x2YmxObGNuWnBZMlU2T1RBNQ==',
+      'content-type': contentType,
+      'accept-language': 'en-ID',
+      'content-language': 'en-ID',
+      'Host': 'customer.flip.id',
+      'User-Agent': 'okhttp/4.10.0',
+      'Connection': 'Keep-Alive',
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+      ...(token ? { 'x-device-id': FLIP_DEVICE.identifier } : {}),
+    }
+  }
+
+  async function flipPost(path, body, token = null) {
+    const res = await fetch(`https://customer.flip.id${path}`, {
+      method: 'POST',
+      headers: flipBaseHeaders(token),
+      body: JSON.stringify(body),
+    })
+    const json = await res.json().catch(() => ({}))
+    if (!res.ok || (json.code && json.code !== 2002)) {
+      throw new Error(json.message || `HTTP ${res.status}`)
+    }
+    return json
+  }
+
+  // ── 1. Check nomor HP ────────────────────────────────────
+  fastify.post('/flip-login/check', {
+    schema: {
+      body: {
+        type: 'object', required: ['credential'],
+        properties: { credential: { type: 'string' } }
+      }
+    }
+  }, async (request, reply) => {
+    const { credential } = request.body
+    try {
+      const json = await flipPost('/user-auth/api/v3.1/user/check', {
+        credential,
+        device_identifier: FLIP_DEVICE.identifier,
+      })
+      return reply.success({
+        is_registered: json.data.is_registered,
+        is_pin_registered: json.data.is_pin_registered,
+        phone_masked: json.data.phone_number,
+        email_masked: json.data.email,
+      })
+    } catch (e) {
+      return reply.fail('FLIP_ERROR', e.message, 400)
+    }
+  })
+
+  // ── 2. Request OTP ───────────────────────────────────────
+  fastify.post('/flip-login/request-otp', {
+    schema: {
+      body: {
+        type: 'object', required: ['credential'],
+        properties: {
+          credential: { type: 'string' },
+          channel: { type: 'string', default: 'via-wa-by-service' },
+        }
+      }
+    }
+  }, async (request, reply) => {
+    const { credential, channel = 'via-wa-by-service' } = request.body
+    try {
+      await flipPost('/user-auth/api/v3.1/auth/otp', {
+        phone_number: '',
+        credential,
+        channel,
+        device_identifier: FLIP_DEVICE.identifier,
+      })
+      fastify.log.info(`[FlipLogin] OTP sent to ${credential}`)
+      return reply.success({ message: `OTP telah dikirim ke ${credential} via WhatsApp` })
+    } catch (e) {
+      return reply.fail('FLIP_ERROR', e.message, 400)
+    }
+  })
+
+  // ── 3. Verify OTP → simpan temp token ke Redis ───────────
+  fastify.post('/flip-login/verify-otp', {
+    schema: {
+      body: {
+        type: 'object', required: ['credential', 'otp'],
+        properties: {
+          credential: { type: 'string' },
+          otp: { type: 'string', minLength: 4, maxLength: 8 },
+        }
+      }
+    }
+  }, async (request, reply) => {
+    const { credential, otp } = request.body
+    try {
+      const json = await flipPost('/user-auth/api/v3.1/auth/login', {
+        credential,
+        verification_code: otp,
+        platform: 'android',
+        device_model: FLIP_DEVICE.model,
+        version: FLIP_DEVICE.version,
+        os_version: FLIP_DEVICE.os_version,
+        device_identifier: FLIP_DEVICE.identifier,
+        request_id: crypto.randomUUID(),
+        channel: 'via-wa-by-service',
+      })
+
+      const tempToken = json.data?.token
+      if (!tempToken) throw new Error('Token tidak dikembalikan dari Flip')
+
+      // Simpan temp token di Redis (TTL 10 menit)
+      await fastify.redis.set(
+        `pg:flip-login-temp:${request.client.id}`,
+        tempToken,
+        'EX', 600
+      )
+
+      fastify.log.info(`[FlipLogin] OTP verified for ${credential}`)
+      return reply.success({ message: 'OTP terverifikasi. Masukkan PIN Flip untuk melanjutkan.' })
+    } catch (e) {
+      return reply.fail('FLIP_ERROR', e.message, 400)
+    }
+  })
+
+  // ── 4. Finalize: verify PIN + device → simpan ke DB ─────
+  fastify.post('/flip-login/finalize', {
+    schema: {
+      body: {
+        type: 'object', required: ['pin'],
+        properties: {
+          pin: { type: 'string', minLength: 4, maxLength: 8 },
+          email: { type: 'string' },
+          user_id: { type: 'string' },
+        }
+      }
+    }
+  }, async (request, reply) => {
+    const { pin, email, user_id } = request.body
+
+    // Ambil temp token dari Redis
+    const tempToken = await fastify.redis.get(`pg:flip-login-temp:${request.client.id}`)
+    if (!tempToken) {
+      return reply.fail('SESSION_EXPIRED', 'Sesi login habis. Mulai ulang proses OTP.', 400)
+    }
+
+    try {
+      // 4a. PIN verify
+      const pinRes = await flipPost('/user-auth/api/v3.1/auth/pin/verify', {
+        pin,
+        request_type: 1,
+        key_one_time_password: true,
+      }, tempToken)
+
+      const deviceKey = pinRes.data?.keys?.verify_device
+      if (!deviceKey) throw new Error('Device key tidak dikembalikan dari PIN verify')
+
+      // 4b. Device verify
+      const deviceRes = await flipPost('/user-auth/api/v3.1/auth/device/verify', {
+        key: deviceKey,
+        device_name: FLIP_DEVICE.name,
+      }, tempToken)
+
+      const finalToken = deviceRes.data?.token
+      const refreshToken = deviceRes.data?.refresh_token
+      if (!finalToken) throw new Error('Final token tidak dikembalikan dari device verify')
+
+      // 4c. Simpan ke DB
+      const { encrypt } = await import('@payment-gateway/shared/crypto')
+
+      // Decode JWT untuk ambil user_id otomatis
+      function decodeJwt(t) {
+        try {
+          const b64 = t.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')
+          const padded = b64.padEnd(b64.length + (4 - b64.length % 4) % 4, '=')
+          return JSON.parse(Buffer.from(padded, 'base64').toString('utf8'))
+        } catch { return null }
+      }
+      const payload = decodeJwt(finalToken)
+      const flipEmail = email || payload?.data?.email || 'unknown@flip.id'
+      const flipUserId = user_id || String(payload?.data?.id || '')
+
+      await db.paymentProvider.upsert({
+        where: { providerName: 'flip' },
+        update: {
+          email: flipEmail,
+          userId: flipUserId,
+          token: encrypt(finalToken),
+          refreshToken: refreshToken ? encrypt(refreshToken) : undefined,
+          pin: encrypt(pin),
+          tokenExpiresAt: payload?.exp ? new Date(payload.exp * 1000) : null,
+        },
+        create: {
+          providerName: 'flip',
+          email: flipEmail,
+          userId: flipUserId,
+          token: encrypt(finalToken),
+          refreshToken: refreshToken ? encrypt(refreshToken) : null,
+          pin: encrypt(pin),
+          tokenExpiresAt: payload?.exp ? new Date(payload.exp * 1000) : null,
+        }
+      })
+
+      // Hapus temp token
+      await fastify.redis.del(`pg:flip-login-temp:${request.client.id}`)
+
+      fastify.log.info(`[FlipLogin] Login berhasil — userId: ${flipUserId}, expires: ${payload?.exp ? new Date(payload.exp * 1000).toISOString() : 'unknown'}`)
+
+      return reply.success({
+        message: 'Login Flip berhasil! Token dan refresh token tersimpan.',
+        email: flipEmail,
+        user_id: flipUserId,
+        expires_at: payload?.exp ? new Date(payload.exp * 1000).toISOString() : null,
+        has_token: true,
+        has_refresh: !!refreshToken,
+      })
+    } catch (e) {
+      fastify.log.error('[FlipLogin] Finalize error:', e.message)
+      return reply.fail('FLIP_ERROR', e.message, 400)
+    }
+  })
 }
+

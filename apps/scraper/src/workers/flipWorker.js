@@ -12,6 +12,34 @@ import { decrypt, encrypt } from '@payment-gateway/shared/crypto'
 import * as flipClient from '../lib/flipClient.js'
 import * as flipBrowser from '../scrapers/flipBrowser.js'
 
+// ── Helpers ──────────────────────────────────────────────
+function decodeJwt(token) {
+  try {
+    const b64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')
+    const pad = b64.padEnd(b64.length + (4 - b64.length % 4) % 4, '=')
+    return JSON.parse(Buffer.from(pad, 'base64').toString())
+  } catch { return null }
+}
+
+/** Cek apakah error adalah Alaflip tidak aktif */
+function isAlaflipInactive(res) {
+  if (!res) return false
+  const msg = (res.error?.message || res.message || '').toLowerCase()
+  const code = String(res.error?.code || res.code || '')
+  return msg.includes('inactive') || msg.includes('not active') ||
+    msg.includes('refresh token not found') || code === '40301'
+}
+
+/** Ambil webview URL untuk aktivasi Alaflip */
+async function getAlaflipWebviewUrl(token, userId) {
+  const { getAlaflipWebviewUrl: getAlaflipWebviewUrlHttp } = await import('@payment-gateway/shared/flip')
+  const { url } = await getAlaflipWebviewUrlHttp(userId, token)
+  const b64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')
+  const pad = b64.padEnd(b64.length + (4 - b64.length % 4) % 4, '=')
+  const deviceId = JSON.parse(Buffer.from(pad, 'base64').toString())?.data?.device_identifier
+  return { url, deviceId }
+}
+
 export function startFlipWorker() {
   const worker = new Worker('flip', async (job) => {
     const { withdrawalId, triggeredBy } = job.data
@@ -38,7 +66,7 @@ export function startFlipWorker() {
     // ── Tandai sebagai processing (lock) ──────────────────
     await db.withdrawal.update({
       where: { id: withdrawalId },
-      data:  { status: 'processing', retryCount: { increment: 1 } }
+      data: { status: 'processing', retryCount: { increment: 1 } }
     })
 
     // ── Ambil PaymentProvider ─────────────────────────────
@@ -54,13 +82,13 @@ export function startFlipWorker() {
     // ── Lazy token refresh ────────────────────────────────
     let token
     try {
-      const now       = new Date()
+      const now = new Date()
       const isExpired = !provider.tokenExpiresAt || provider.tokenExpiresAt <= now
 
       if (isExpired) {
         console.log('[FlipWorker] Token expired — refreshing...')
         const currentToken = decrypt(provider.token)
-        const refreshRes   = await flipClient.refreshToken(currentToken)
+        const refreshRes = await flipClient.refreshToken(currentToken)
 
         if (!refreshRes?.data?.token) {
           throw new Error('Gagal refresh token Flip: tidak ada token baru')
@@ -71,7 +99,7 @@ export function startFlipWorker() {
 
         await db.paymentProvider.update({
           where: { providerName: 'flip' },
-          data:  { token: encrypt(token), tokenExpiresAt: expiresAt }
+          data: { token: encrypt(token), tokenExpiresAt: expiresAt }
         })
       } else {
         token = decrypt(provider.token)
@@ -81,35 +109,49 @@ export function startFlipWorker() {
       throw err
     }
 
-    const pin    = decrypt(provider.pin)
+    const pin = decrypt(provider.pin)
     const userId = provider.userId
 
     try {
-      // ── Step 1: Dapatkan challenge token Aladin ──────────
+      // ── Step 1: Cek status Alaflip lalu dapatkan challenge token ──
       console.log(`[FlipWorker] Getting transfer challenge for withdrawal ${withdrawalId}...`)
-      const challengeRes = await flipClient.getTokenTransfer(
-        Math.round(Number(withdrawal.amount)),
+      let challengeRes = await flipClient.getTokenTransfer(
+        Math.round(Number(withdrawal.amountReceived)),
         token
       )
+
+      // Jika Alaflip tidak aktif — aktivasi otomatis via Playwright
+      if (isAlaflipInactive(challengeRes)) {
+        console.log(`[FlipWorker] Alaflip inactive detected — memulai auto-activation...`)
+
+        const { url: webviewUrl, deviceId: devId } = await getAlaflipWebviewUrl(token, userId)
+        const pinStr = decrypt(provider.pin)
+
+        await flipBrowser.activateAlaflip(webviewUrl, pinStr, devId)
+        console.log(`[FlipWorker] Alaflip activated — retrying challenge...`)
+
+        // Retry sekali setelah aktivasi
+        challengeRes = await flipClient.getTokenTransfer(
+          Math.round(Number(withdrawal.amountReceived)),
+          token
+        )
+
+        if (isAlaflipInactive(challengeRes)) {
+          throw new Error('Alaflip masih tidak aktif setelah re-aktivasi. Coba aktivasi manual.')
+        }
+      }
 
       if (!challengeRes?.data?.challenge_url) {
         throw new Error(`Gagal mendapatkan challenge URL: ${JSON.stringify(challengeRes)}`)
       }
 
-      const challengeUrl           = challengeRes.data.challenge_url
-      const AUTHORIZATION          = challengeRes.data.headers['X-AUTHORIZATION']
-      const AUTHORIZATION_CUSTOMER = challengeRes.data.headers['X-AUTHORIZATION-CUSTOMER']
-      const DEVICE_ID              = challengeRes.data.headers['X-DEVICE-ID']
+      const challengeUrl = challengeRes.data.challenge_url
+      const wvHeaders    = challengeRes.data.headers || {}
+      const wvDeviceId   = wvHeaders['X-DEVICE-ID'] || deviceId || ''
 
       // ── Step 2: Input PIN via Playwright ─────────────────
       console.log(`[FlipWorker] Launching browser for PIN input...`)
-      const pinResponse = await flipBrowser.inputPin(
-        challengeUrl,
-        pin,
-        AUTHORIZATION,
-        AUTHORIZATION_CUSTOMER,
-        DEVICE_ID
-      )
+      const pinResponse = await flipBrowser.inputPin(challengeUrl, pin, wvHeaders)
 
       const nonce       = pinResponse.nonce
       const referenceId = pinResponse.partner_reference_no
@@ -117,18 +159,18 @@ export function startFlipWorker() {
       // ── Step 3: Execute transfer ──────────────────────────
       console.log(`[FlipWorker] Executing transfer...`)
       const transferRes = await flipClient.transferBank({
-        accountNumber:  withdrawal.destinationAccount,
-        bank:           withdrawal.destinationBank,
-        amount:         Number(withdrawal.amount),
-        beneficiaryName:withdrawal.destinationName,
-        pin:            nonce,
+        accountNumber:   withdrawal.destinationAccount,
+        beneficiaryBank: withdrawal.destinationBank,
+        amount:          Number(withdrawal.amountReceived),
+        beneficiaryName: withdrawal.destinationName,
+        nonce,
         referenceId,
-        deviceId:       DEVICE_ID
+        idempotencyKey:  `${userId || 'flip'}_${Math.floor(Date.now() / 1000)}`,
       }, token)
 
       // Validasi response
-      const trxId  = transferRes?.id       || transferRes?.data?.id
-      const status = transferRes?.status   || transferRes?.data?.status
+      const trxId = transferRes?.id || transferRes?.data?.id
+      const status = transferRes?.status || transferRes?.data?.status
 
       if (!trxId) {
         throw new Error(`Transfer response tidak valid: ${JSON.stringify(transferRes)}`)
@@ -138,9 +180,10 @@ export function startFlipWorker() {
       await db.withdrawal.update({
         where: { id: withdrawalId },
         data: {
-          status:      'processed',
-          flipTrxId:   String(trxId),
-          processedAt: new Date()
+          status: 'processed',
+          flipTrxId: String(trxId),
+          processedAt: new Date(),
+          rejectionReason: null
         }
       })
 
@@ -152,11 +195,11 @@ export function startFlipWorker() {
             if (newBalance !== undefined) {
               db.paymentProvider.update({
                 where: { providerName: 'flip' },
-                data:  { balance: newBalance }
-              }).catch(() => {})
+                data: { balance: newBalance }
+              }).catch(() => { })
             }
           })
-          .catch(() => {})
+          .catch(() => { })
       }
 
       console.log(`[FlipWorker] ✅ Withdrawal ${withdrawalId} processed — Flip ID: ${trxId}`)
@@ -169,8 +212,8 @@ export function startFlipWorker() {
     }
 
   }, {
-    connection:   getRedisConnection(),
-    concurrency:  1,         // Sequential — tidak boleh paralel ke Flip
+    connection: getRedisConnection(),
+    concurrency: 1,         // Sequential — tidak boleh paralel ke Flip
     stalledInterval: 60_000, // Cek stalled job setiap 60s
     maxStalledCount: 1       // Jika stalled 1x → mark failed, jangan retry otomatis
   })
@@ -195,7 +238,7 @@ async function markFailed(db, withdrawalId, reason) {
     await db.withdrawal.update({
       where: { id: withdrawalId },
       data: {
-        status:          'failed',
+        status: 'failed',
         rejectionReason: reason?.slice(0, 500)
       }
     })

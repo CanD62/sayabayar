@@ -410,6 +410,7 @@ model PaymentProvider {
   email          String    @db.VarChar(100)
   userId         String?   @map("user_id") @db.VarChar(100)   // user_id Flip (untuk URL Aladin)
   token          String    @db.Text        // encrypted — Bearer token Flip
+  refreshToken   String?   @map("refresh_token") @db.Text // encrypted — Flip refresh token
   pin            String    @db.VarChar(255) // encrypted — 6 digit PIN Flip
   balance        Decimal   @default(0) @db.Decimal(15, 2)
   tokenExpiresAt DateTime? @map("token_expires_at")

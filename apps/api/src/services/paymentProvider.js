@@ -1,41 +1,33 @@
 // apps/api/src/services/paymentProvider.js
 // Wrapper Flip Personal API — token disimpan encrypted di DB, lazy refresh
-// Tidak ada referensi "flip" yang bocor ke frontend/network traffic client
+// HTTP layer: @payment-gateway/shared/flip (single source of truth)
+// Service layer di sini: DB, Redis, lazy token refresh, lock
 
 import crypto from 'node:crypto'
 import { encrypt, decrypt } from '@payment-gateway/shared/crypto'
-
-// ── Flip API endpoints (Flip Personal / Consumer) ──────────
-const FLIP_HOST    = 'flip.id'
-const FLIP_URLS = {
-  token:      'https://flip.id/api/v3/auth/token',
-  akun:       'https://flip.id/api/v1/user/info',
-  limit:      'https://flip.id/api/v2/e-money/me',
-  list_bank:  'https://flip.id/api/v2/transactions/beneficiary-bank',
-  cekrekening:'https://flip.id/api/v2.1/accounts/inquiry-account-number'
-}
+import {
+  decodeJwtPayload,
+  getDeviceIdentifier,
+  flipHeaders,
+  custHeaders,
+  parseResponse,
+  refreshFlipToken,
+  getAlaflipStatus   as getAlaflipStatusHttp,
+  getAlaflipBalance  as getAlaflipBalanceHttp,
+  getAlaflipWebviewUrl as getAlaflipWebviewUrlHttp,
+  getChargeChallenge,
+  executeTransfer,
+  getBankList        as getBankListHttp,
+  checkAccount       as checkAccountHttp,
+  FLIP_URLS,
+  CUST_HOST,
+} from '@payment-gateway/shared/flip'
 
 // ── Cache TTL ──────────────────────────────────────────────
 const BANKS_TTL_SEC   = 60 * 60   // 1 jam
 const ACCOUNT_TTL_SEC = 5  * 60   // 5 menit
 
-// ── Flip HTTP client headers (mirroring flip.js dari example) ──
-function flipHeaders(token, contentType = 'application/x-www-form-urlencoded') {
-  return {
-    'Authorization':        `Bearer ${token}`,
-    'api-key':              'EDdwAw954mv4VyjpXLXZ5pRehJNXNmhsqdMbPFyaDq28aAhz',
-    'x-device-id':          '0e5e4950-14cf-4ad9-a5ef-5cf11fb641f4',
-    'x-internal-api-key':   'VlhObGNsQnliMlpwYkdWQmJtUkJkWFJvWlc1MGFXTmhkR2x2YmxObGNuWnBZMlU2T1RBNQ==',
-    'accept-language':      'id-ID',
-    'content-language':     'id-ID',
-    'content-type':         contentType,
-    'Host':                 FLIP_HOST,
-    'Connection':           'Keep-Alive',
-    'User-Agent':           'okhttp/5.0.0-alpha.3'
-  }
-}
-
-/** Hash account_number + bank untuk cache key (tidak bocorkan no rek ke Redis key mentah) */
+// ── Cache key helper ────────────────────────────────────────
 function accountCacheKey(accountNumber, bank) {
   const hash = crypto.createHash('sha256')
     .update(`${accountNumber}:${bank}`)
@@ -44,24 +36,13 @@ function accountCacheKey(accountNumber, bank) {
   return `pg:flip:acct:${hash}`
 }
 
-/** Parse response Fetch, throw jika error */
-async function parseResponse(res) {
-  const text = await res.text()
-  let body
-  try { body = JSON.parse(text) } catch { body = { message: text } }
-  if (!res.ok) {
-    const msg = body?.message || `Flip API error ${res.status}`
-    const err = new Error(msg)
-    err.status  = res.status
-    err.flipBody = body
-    throw err
-  }
-  return body
-}
 
-// ── Factory — dipanggil per-request dari route ─────────────
 
-export function createPaymentProviderService(db, redis) {
+// ── Lock sederhana untuk mencegah aktivasi ganda Alaflip ──
+const _alaflipActivationLock = { active: false }
+
+// ── Factory — dipanggil per-request dari route ────────────
+export function createPaymentProviderService(db, redis, { inputPin, activateAlaflip } = {}) {
 
   /** Ambil row PaymentProvider dari DB */
   async function getProvider() {
@@ -80,7 +61,7 @@ export function createPaymentProviderService(db, redis) {
    */
   async function getToken() {
     const provider = await getProvider()
-    const now = new Date()
+    const now      = new Date()
     const isExpired = !provider.tokenExpiresAt || provider.tokenExpiresAt <= now
 
     if (isExpired) {
@@ -90,56 +71,55 @@ export function createPaymentProviderService(db, redis) {
   }
 
   /**
-   * Refresh token via Flip API (PUT /auth/token).
+   * Refresh token via Flip API (POST /user-auth/api/v3.1/auth/refresh).
    * Setelah berhasil, update DB: token (encrypted), tokenExpiresAt, userId, balance.
    */
   async function refreshToken(provider) {
     if (!provider) provider = await getProvider()
 
-    const currentToken = decrypt(provider.token)
+    const currentToken    = decrypt(provider.token)
+    const currentRefreshToken = provider.refreshToken ? decrypt(provider.refreshToken) : undefined
 
-    const res = await fetch(FLIP_URLS.token, {
-      method:  'PUT',
-      headers: flipHeaders(currentToken),
-      body:    new URLSearchParams({ version: '360' })
-    })
-    const body = await parseResponse(res)
+    const body = await refreshFlipToken(currentToken, currentRefreshToken)
 
-    if (!body?.data?.token) {
+    // Flip v3.1 refresh response: { data: { token, refresh_token, ... } }
+    const newToken = body?.data?.token || body?.token
+    if (!newToken) {
       throw new Error('Flip tidak mengembalikan token baru saat refresh')
     }
 
-    const newToken = body.data.token
+    const newRefreshToken = body?.data?.refresh_token || body?.refresh_token
 
-    // Ambil info akun (user_id) + saldo Aladin
-    const [infoRes, saldoRes] = await Promise.all([
-      fetch(FLIP_URLS.akun, { method: 'GET', headers: flipHeaders(newToken) }),
-      provider.userId
-        ? fetch(`https://api.flip.id/alaflip/api/v1/users/${provider.userId}/balance`, {
-            method: 'GET',
-            headers: { ...flipHeaders(newToken), 'Host': 'api.flip.id' }
-          })
-        : Promise.resolve(null)
-    ])
+    // Ambil info akun (user_id) dari token payload atau endpoint
+    let userId = provider.userId
+    try {
+      const payload = decodeJwtPayload(newToken)
+      userId = String(payload?.data?.id || userId)
+    } catch { /* gunakan userId lama */ }
 
-    const infoBody = await parseResponse(infoRes)
-    const userId   = infoBody?.id || provider.userId || null
-
+    // Ambil saldo Aladin jika userId tersedia
     let balance = provider.balance
-    if (saldoRes) {
-      const saldoBody = await saldoRes.json().catch(() => ({}))
-      balance = saldoBody?.data?.balance ?? balance
+    if (userId) {
+      try {
+        const balanceNum = await getAlaflipBalanceHttp(userId, newToken)
+        if (balanceNum !== undefined) balance = balanceNum
+      } catch { /* saldo Aladin tidak kritikal */ }
     }
 
-    // Token Flip valid 24 jam — simpan dengan margin 30 menit
-    const expiresAt = new Date(Date.now() + (24 - 0.5) * 60 * 60 * 1000)
+    // Token Flip valid ±14 hari (exp di JWT) — simpan dengan margin 30 menit
+    let expiresAt = new Date(Date.now() + (14 * 24 - 0.5) * 60 * 60 * 1000)
+    try {
+      const payload = decodeJwtPayload(newToken)
+      if (payload?.exp) expiresAt = new Date(payload.exp * 1000 - 30 * 60 * 1000)
+    } catch { /* gunakan default */ }
 
     await db.paymentProvider.update({
       where: { providerName: 'flip' },
       data: {
         token:          encrypt(newToken),
         tokenExpiresAt: expiresAt,
-        userId:         String(userId),
+        ...(newRefreshToken ? { refreshToken: encrypt(newRefreshToken) } : {}),
+        userId:         userId ? String(userId) : provider.userId,
         balance:        balance
       }
     })
@@ -148,9 +128,70 @@ export function createPaymentProviderService(db, redis) {
   }
 
   /**
+   * Cek status Alaflip — apakah aktif di device bot atau tidak.
+   * Return: 'SUCCESS_REGISTER' | 'INACTIVE' | ...
+   */
+  async function getAlaflipStatus() {
+    const [token, provider] = await Promise.all([getToken(), getProvider()])
+    if (!provider.userId) throw new Error('userId belum tersedia di provider')
+    return getAlaflipStatusHttp(provider.userId, token)
+  }
+
+  /**
+   * Ambil URL webview Alaflip untuk aktivasi/linkage.
+   * POST /alaflip/api/v1/users/{userId}/webview-url
+   */
+  async function getAlaflipWebviewUrl() {
+    const [token, provider] = await Promise.all([getToken(), getProvider()])
+    if (!provider.userId) throw new Error('userId belum tersedia di provider')
+
+    const { url } = await getAlaflipWebviewUrlHttp(provider.userId, token)
+    return url
+  }
+
+  /**
+   * Pastikan Alaflip aktif sebelum transfer.
+   * Jika tidak aktif, jalankan aktivasi via flipBrowser (Playwright).
+   * Flow baru: dapatkan webview URL → buka di browser → login Aladin + PIN → binding selesai.
+   */
+  async function ensureAlaflipActive() {
+    if (!activateAlaflip) {
+      throw new Error('activateAlaflip (flipBrowser) tidak di-inject ke service')
+    }
+
+    if (_alaflipActivationLock.active) {
+      // Tunggu aktivasi oleh request lain selesai (max 60 detik)
+      let waited = 0
+      while (_alaflipActivationLock.active && waited < 60000) {
+        await new Promise(r => setTimeout(r, 500))
+        waited += 500
+      }
+      return
+    }
+
+    _alaflipActivationLock.active = true
+    try {
+      const provider  = await getProvider()
+      const token     = await getToken()
+      const deviceId  = getDeviceIdentifier(token)
+      const pin       = provider.pin ? decrypt(provider.pin) : null
+
+      if (!pin) throw new Error('PIN belum dikonfigurasi di provider')
+
+      console.log('[PaymentProvider] Alaflip tidak aktif — mengambil webview URL...')
+      const webviewUrl = await getAlaflipWebviewUrl()
+
+      console.log('[PaymentProvider] Memulai aktivasi via browser (Playwright)...')
+      await activateAlaflip(webviewUrl, pin, deviceId)
+      console.log('[PaymentProvider] Aktivasi Alaflip selesai')
+    } finally {
+      _alaflipActivationLock.active = false
+    }
+  }
+
+  /**
    * GET list bank — cache Redis 1 jam
    * Return: [{ id, name, code, popular }]
-   * Parse format Flip baru: { popularBanks, supportedBanks, detailBanks, eWallets, ... }
    */
   async function getBankList() {
     const cacheKey = 'pg:flip:banks'
@@ -158,16 +199,10 @@ export function createPaymentProviderService(db, redis) {
     if (cached) return JSON.parse(cached)
 
     const token = await getToken()
-    const res   = await fetch(FLIP_URLS.list_bank, {
-      method:  'GET',
-      headers: flipHeaders(token)
-    })
-    const body = await parseResponse(res)
+    const body  = await getBankListHttp(token)
 
-    // Format baru Flip: { popularBanks[], supportedBanks[], detailBanks[], eWallets[], ... }
     let banks
     if (body.supportedBanks && Array.isArray(body.supportedBanks)) {
-      // Build name map dari detailBanks
       const nameMap = {}
       if (Array.isArray(body.detailBanks)) {
         for (const b of body.detailBanks) {
@@ -175,17 +210,12 @@ export function createPaymentProviderService(db, redis) {
         }
       }
 
-      // eCommerces tetap difilter (tokopedia dll - bukan untuk penarikan)
       const eCommerceSet = new Set(body.eCommerces || [])
       const eWalletSet   = new Set(body.eWallets || [])
       const popularSet   = new Set(body.popularBanks || [])
 
-      // Ambil semua supportedBanks kecuali e-commerce
-      const bankCodes = body.supportedBanks.filter(
-        code => !eCommerceSet.has(code)
-      )
+      const bankCodes = body.supportedBanks.filter(code => !eCommerceSet.has(code))
 
-      // Nama fallback jika tidak ada di detailBanks
       const FALLBACK_NAMES = {
         bca:                        'BCA',
         bri:                        'BRI',
@@ -212,18 +242,16 @@ export function createPaymentProviderService(db, redis) {
 
       banks = bankCodes.map(code => ({
         code,
-        id:       code,
-        name:     nameMap[code] || FALLBACK_NAMES[code] || code.replace(/_/g, ' ').toUpperCase(),
-        popular:  popularSet.has(code) && !eWalletSet.has(code),
+        id:        code,
+        name:      nameMap[code] || FALLBACK_NAMES[code] || code.replace(/_/g, ' ').toUpperCase(),
+        popular:   popularSet.has(code) && !eWalletSet.has(code),
         isEwallet: eWalletSet.has(code)
       }))
 
-      // Urutkan: popularBanks dulu → bank biasa alfabetis → e-wallet alfabetis
       const popularOrder = (body.popularBanks || []).filter(c => !eCommerceSet.has(c) && !eWalletSet.has(c))
       const popularMap   = Object.fromEntries(popularOrder.map((c, i) => [c, i]))
 
       banks.sort((a, b) => {
-        // E-wallet selalu di bawah bank
         if (a.isEwallet !== b.isEwallet) return a.isEwallet ? 1 : -1
         const pa = popularMap[a.code] ?? Infinity
         const pb = popularMap[b.code] ?? Infinity
@@ -232,7 +260,6 @@ export function createPaymentProviderService(db, redis) {
       })
 
     } else {
-      // Format lama (fallback): object { BCA: { name, ... }, ... }
       banks = Object.entries(body).map(([code, info]) => ({
         id:      code,
         code,
@@ -247,45 +274,39 @@ export function createPaymentProviderService(db, redis) {
 
   /**
    * Cek nomor rekening — cache Redis 5 menit
+   * Endpoint baru: POST /domestic-transfer/v1/accounts/inquire (JSON body)
    * Return: { account_name, account_number, bank }
    */
   async function checkAccount(accountNumber, bank) {
-    // Flip menggunakan kode bank lowercase (bca, bni, bri, dll)
     const bankCode = bank.toLowerCase()
     const cacheKey = accountCacheKey(accountNumber, bankCode)
     const cached   = await redis.get(cacheKey)
     if (cached) return JSON.parse(cached)
 
     const token = await getToken()
-    const url   = `${FLIP_URLS.cekrekening}?account_number=${encodeURIComponent(accountNumber)}&bank=${encodeURIComponent(bankCode)}`
 
-    const res  = await fetch(url, { method: 'GET', headers: flipHeaders(token) })
-    const text = await res.text()
     let body
-    try { body = JSON.parse(text) } catch { body = { message: text } }
-
-    // Parse specific Flip error codes
-    if (!res.ok) {
-      const flipErrors = body?.errors || []
+    try {
+      body = await checkAccountHttp(accountNumber, bankCode, token)
+    } catch (err) {
+      const flipErrors = err.flipBody?.errors || []
       const isBankInvalid = flipErrors.some(e => {
         try { return JSON.parse(e.message)?.bank?.includes('bank_invalid') } catch { return false }
       })
       if (isBankInvalid) {
-        const err = new Error(`Kode bank tidak valid: ${bankCode}`)
-        err.status = 422
-        err.code   = 'BANK_INVALID'
-        throw err
+        const customErr = new Error(`Kode bank tidak valid: ${bankCode}`)
+        customErr.status = 422
+        customErr.code   = 'BANK_INVALID'
+        throw customErr
       }
-      const msg = body?.message || `Flip API error ${res.status}`
-      const err = new Error(msg)
-      err.status  = res.status
-      err.flipBody = body
       throw err
     }
 
+    // Response format baru: { success: true, data: { account_number, bank, account_name, ... } }
+    const data = body?.data || body
     const result = {
-      account_name:   body?.account_holder || body?.name || null,
-      account_number: body?.account_number || accountNumber,
+      account_name:   data?.account_name || data?.account_holder || data?.name || null,
+      account_number: data?.account_number || accountNumber,
       bank:           bankCode
     }
 
@@ -299,5 +320,103 @@ export function createPaymentProviderService(db, redis) {
     return result
   }
 
-  return { getToken, refreshToken, getBankList, checkAccount, getProvider }
+  /**
+   * Kirim transfer via Flip (sender: superflip/Alaflip).
+   * Mendukung auto-reactivation Alaflip jika tidak aktif.
+   *
+   * @param {object}  params
+   * @param {string}  params.accountNumber      - Rekening tujuan
+   * @param {string}  params.beneficiaryBank    - Kode bank tujuan
+   * @param {string}  params.beneficiaryName    - Nama penerima
+   * @param {number}  params.amount             - Jumlah (integer rupiah)
+   * @param {string}  [params.remark]           - Keterangan
+   * @param {string}  params.nonce              - Dari inputPin hasil flipBrowser
+   * @param {string}  params.referenceId        - partner_reference_no dari inputPin
+   * @param {string}  params.idempotencyKey     - Idempotency key unik per transaksi
+   * @param {object}  [params.retryAlaflip]     - { challengeUrl, authorizationAladin, authorizationAladinCustomer }
+   *                                               jika diisi, akan auto-reactivate Alaflip jika inactive
+   */
+  async function transfer(params) {
+    const token = await getToken()
+
+    try {
+      const data = await executeTransfer(params, token)
+      return data
+    } catch (err) {
+      const errBody = err.flipBody || {}
+      
+      const isAlaflipInactive = (
+        errBody?.message?.toLowerCase().includes('alaflip') ||
+        errBody?.message?.toLowerCase().includes('inactive') ||
+        errBody?.message?.toLowerCase().includes('tidak aktif') ||
+        errBody?.error_code === 'ALAFLIP_INACTIVE'
+      )
+
+      if (isAlaflipInactive && params.retryAlaflip && !params.retryAlaflip._retried) {
+        console.warn('[PaymentProvider] Alaflip tidak aktif — mencoba aktivasi ulang...')
+        await ensureAlaflipActive(
+          params.retryAlaflip.challengeUrl,
+          params.retryAlaflip.authorizationAladin,
+          params.retryAlaflip.authorizationAladinCustomer
+        )
+        // Retry sekali setelah aktivasi
+        return transfer({ ...params, retryAlaflip: { ...params.retryAlaflip, _retried: true } })
+      }
+
+      throw err
+    }
+  }
+
+  /**
+   * Top up saldo Flip dari rekening bank (untuk isi ulang saldo superflip).
+   *
+   * @param {object} params
+   * @param {string} params.senderBank     - Kode bank pengirim (misal 'mandiri')
+   * @param {string} params.senderBankType - 'bank_account' | 'virtual_account'
+   * @param {number} params.amount         - Jumlah (integer rupiah)
+   * @param {string} params.accountNumber  - Nomor rekening Aladin (superflip) tujuan topup
+   * @param {string} params.idempotencyKey - Idempotency key unik
+   */
+  async function topup(params) {
+    const {
+      senderBank,
+      senderBankType = 'bank_account',
+      amount,
+      accountNumber,
+      idempotencyKey
+    } = params
+
+    const token = await getToken()
+
+    const body = new URLSearchParams({
+      sender_bank:       senderBank.toLowerCase(),
+      sender_bank_type:  senderBankType,
+      amount:            String(amount),
+      remark:            '',
+      account_number:    accountNumber,
+      beneficiary_bank:  'superflip'
+    })
+
+    const res = await fetch(FLIP_URLS.topup, {
+      method:  'POST',
+      headers: flipHeaders(token, 'application/x-www-form-urlencoded', {
+        'idempotency-key': idempotencyKey,
+      }),
+      body
+    })
+
+    return parseResponse(res)
+  }
+
+  return {
+    getToken,
+    refreshToken,
+    getBankList,
+    checkAccount,
+    getProvider,
+    getAlaflipStatus,
+    ensureAlaflipActive,
+    transfer,
+    topup,
+  }
 }

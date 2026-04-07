@@ -35,6 +35,8 @@ steps:
         FRONTEND_IMAGE="registry.pcs.my.id/sayabayar-web"
         FRONTEND_PORT="3009"
         API_PORT="3010"
+        SCRAPER_PORT="3008"
+        VM_IP="192.168.50.3"
         SHORT_SHA="${DRONE_COMMIT_SHA:0:7}"
 
         echo "USER          : $USER"
@@ -43,6 +45,7 @@ steps:
         echo "Commit SHA    : $SHORT_SHA"
         echo "Frontend Port : $FRONTEND_PORT"
         echo "API Port      : $API_PORT"
+        echo "Scraper Port  : $SCRAPER_PORT"
         echo "========================================="
 
         mkdir -p /home/$USER/$ROOT_DIR
@@ -116,6 +119,7 @@ steps:
           -w /app/apps/api \
           -p $API_PORT:$API_PORT \
           -e TZ=Asia/Jakarta \
+          -e SCRAPER_URL="http://$VM_IP:$SCRAPER_PORT" \
           --env-file $APP_DIR/.env.docker \
           --restart always \
           $NODE_IMAGE \
@@ -128,12 +132,14 @@ steps:
         docker run -d --name sayabayar_scraper \
           -v $APP_DIR:/app \
           -w /app/apps/scraper \
+          -p $SCRAPER_PORT:$SCRAPER_PORT \
           -e TZ=Asia/Jakarta \
+          -e SCRAPER_PORT=$SCRAPER_PORT \
           --env-file $APP_DIR/.env.docker \
           --restart always \
           $PLAYWRIGHT_IMAGE \
           node src/index.js
-        echo "Scraper berjalan"
+        echo "Scraper berjalan di port $SCRAPER_PORT"
 
         echo "Build Frontend image Next.js..."
         echo "NEXT_PUBLIC_API_URL : $NEXT_PUBLIC_API_URL"
@@ -179,8 +185,9 @@ steps:
         docker logs --tail 10 sayabayar_web
 
         echo "Deployment selesai!"
-        echo "Frontend : http://192.168.50.3:$FRONTEND_PORT"
-        echo "API      : http://192.168.50.3:$API_PORT"
+        echo "Frontend : http://$VM_IP:$FRONTEND_PORT"
+        echo "API      : http://$VM_IP:$API_PORT"
+        echo "Scraper  : http://$VM_IP:$SCRAPER_PORT (testing only)"
 
 trigger:
   branch:

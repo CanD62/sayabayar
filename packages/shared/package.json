@@ -8,7 +8,9 @@
     "./constants": "./src/constants/index.js",
     "./crypto": "./src/crypto/index.js",
     "./qris": "./src/qris/index.js",
-    "./db": "./src/db/index.js"
+    "./db": "./src/db/index.js",
+    "./flip": "./src/flip/index.js"
+
   },
   "scripts": {
     "prisma:generate": "prisma generate --env-file ../../.env",

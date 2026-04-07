@@ -10,7 +10,7 @@ import { startMatchWorker } from './workers/matchWorker.js'
 import { startWebhookWorker } from './workers/webhookWorker.js'
 import { startSettlementWorker, stopSettlementWorker } from './workers/settlementWorker.js'
 import { startFlipWorker } from './workers/flipWorker.js'
-import { closeBrowser as closeFlipBrowser } from './scrapers/flipBrowser.js'
+import { closeBrowser as closeFlipBrowser, activateAlaflip } from './scrapers/flipBrowser.js'
 import { closeSessionStore } from './sessionStore.js'
 import { createServer } from 'http'
 import { decrypt } from '@payment-gateway/shared/crypto'
@@ -85,11 +85,11 @@ browserPool.startCleanup()
 console.log('✅ Browser pool initialized')
 
 // ── Start workers ─────────────────────────────────────────
-const concurrency  = parseInt(process.env.SCRAPER_CONCURRENCY || '5')
+const concurrency = parseInt(process.env.SCRAPER_CONCURRENCY || '5')
 const scrapeWorker = startScrapeWorker(concurrency)
-const matchWorker  = startMatchWorker(concurrency)
-const webhookWorker= startWebhookWorker(3)
-const flipWorker   = startFlipWorker()   // concurrency=1, sequential
+const matchWorker = startMatchWorker(concurrency)
+const webhookWorker = startWebhookWorker(3)
+const flipWorker = startFlipWorker()         // concurrency=1, sequential
 
 // ── Start settlement worker ───────────────────────────────
 // Settles pending balances every 5 minutes
@@ -115,21 +115,22 @@ const shutdown = async (signal) => {
   stopScheduler()
 
   // Close workers first (stop accepting jobs)
-  await scrapeWorker.close().catch(() => {})
-  await matchWorker.close().catch(() => {})
-  await webhookWorker.close().catch(() => {})
-  await flipWorker.close().catch(() => {})
+  await scrapeWorker.close().catch(() => { })
+  await matchWorker.close().catch(() => { })
+  await webhookWorker.close().catch(() => { })
+  await flipWorker.close().catch(() => { })
+  // await alaflipWorker.close().catch(() => { })
   stopSettlementWorker()
 
   // Logout from banks + close browsers
   await browserPool.shutdown()
-  await closeFlipBrowser().catch(() => {})
+  await closeFlipBrowser().catch(() => { })
 
   // Cleanup Redis session store
-  await closeSessionStore().catch(() => {})
+  await closeSessionStore().catch(() => { })
 
   // Disconnect DB
-  await disconnectDb().catch(() => {})
+  await disconnectDb().catch(() => { })
 
   console.log('Scraper service stopped.')
   process.exit(0)
@@ -141,14 +142,86 @@ process.on('SIGINT', () => shutdown('SIGINT'))
 // ── Test HTTP server (dev/debug) ───────────────────────────
 
 const SCRAPERS = { qris_bca: scrapeQrisBca, bca_transfer: scrapeBcaTransfer }
-const SCRAPER_PORT = parseInt(process.env.SCRAPER_PORT || '3002')
+const SCRAPER_PORT = parseInt(process.env.SCRAPER_PORT || '3008')
 
 
 const testServer = createServer(async (req, res) => {
-  // POST /scrape-now/:channelId[?scroll=false]
   const urlObj = new URL(req.url, `http://localhost`)
+  const path = urlObj.pathname
+  const method = req.method
+
+  // ── POST /alaflip-activate ─────────────────────────────
+  // Dipanggil oleh admin.js untuk trigger aktivasi Alaflip manual
+  if (path === '/alaflip-activate' && method === 'POST') {
+    try {
+      // Baca body JSON
+      const body = await new Promise((resolve, reject) => {
+        let data = ''
+        req.on('data', chunk => data += chunk)
+        req.on('end', () => { try { resolve(JSON.parse(data || '{}')) } catch { resolve({}) } })
+        req.on('error', reject)
+      })
+
+      const { webviewUrl, wvHeaders, userId, flipToken, deviceId } = body
+      if (!webviewUrl) {
+        res.writeHead(400, { 'Content-Type': 'application/json' })
+          .end(JSON.stringify({ error: 'webviewUrl wajib diisi' }))
+        return
+      }
+
+      // Ambil PIN dari DB
+      const provider = await db.paymentProvider.findUnique({ where: { providerName: 'flip' } })
+      if (!provider) { res.writeHead(400).end(JSON.stringify({ error: 'Provider tidak ditemukan' })); return }
+
+      const pin = decrypt(provider.pin)
+
+      console.log('[ScraperHTTP] Memulai aktivasi Alaflip via Playwright...')
+      const start = Date.now()
+
+      // Step 1: Buka browser, input PIN, capture OAuth code
+      const oauthCode = await activateAlaflip(webviewUrl, pin, wvHeaders || {})
+      console.log(`[ScraperHTTP] OAuth code captured (${oauthCode.length} chars)`)
+
+      // Step 2: POST auth-code ke Flip API
+      const authCodeRes = await fetch(
+        `https://customer.flip.id/alaflip/api/v1/users/${userId}/auth-code`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${flipToken}`,
+            'api-key': 'EDdwAw954mv4VyjpXLXZ5pRehJNXNmhsqdMbPFyaDq28aAhz',
+            'x-internal-api-key': 'VlhObGNsQnliMlpwYkdWQmJtUkJkWFJvWlc1MGFXTmhkR2x2YmxObGNuWnBZMlU2T1RBNQ==',
+            ...(deviceId ? { 'x-device-id': deviceId } : {}),
+            'content-type': 'application/json',
+            'accept-language': 'en-ID',
+            'User-Agent': 'okhttp/4.10.0',
+          },
+          body: JSON.stringify({ auth_code: oauthCode })
+        }
+      )
+      const authCodeBody = await authCodeRes.json().catch(() => ({}))
+      console.log(`[ScraperHTTP] auth-code response: ${authCodeRes.status}`, JSON.stringify(authCodeBody))
+
+      if (!authCodeRes.ok) {
+        throw new Error(`auth-code gagal (${authCodeRes.status}): ${authCodeBody?.error?.message || JSON.stringify(authCodeBody)}`)
+      }
+
+      const elapsed_ms = Date.now() - start
+      console.log(`[ScraperHTTP] Aktivasi Alaflip selesai (${elapsed_ms}ms)`)
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+        .end(JSON.stringify({ ok: true, elapsed_ms }))
+    } catch (err) {
+      console.error('[ScraperHTTP] Aktivasi Alaflip gagal:', err.message)
+      res.writeHead(500, { 'Content-Type': 'application/json' })
+        .end(JSON.stringify({ error: err.message }))
+    }
+    return
+  }
+
+
+  // ── POST /scrape-now/:channelId[?scroll=false] ─────────
   const match = urlObj.pathname.match(/^\/scrape-now\/([^/?]+)/)
-  if (!match || req.method !== 'POST') {
+  if (!match || method !== 'POST') {
     res.writeHead(404).end(JSON.stringify({ error: 'Not found' }))
     return
   }
