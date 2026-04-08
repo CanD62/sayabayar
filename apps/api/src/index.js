@@ -68,8 +68,13 @@ async function buildApp() {
     origin: (origin, cb) => {
       // Izinkan request tanpa origin (curl, server-to-server, Postman)
       if (!origin) return cb(null, true)
-      if (allowedOrigins.includes(origin)) return cb(null, true)
-      cb(new Error(`CORS: origin tidak diizinkan — ${origin}`), false)
+      
+      if (allowedOrigins.includes(origin)) {
+        return cb(null, true)
+      }
+      
+      // Jika origin tidak diizinkan, return false (tanpa error) agar fastify membalas dengan wajar
+      cb(null, false)
     },
     credentials: true,
     maxAge: 86400, // Cache preflight for 1 day — prevents OPTIONS on every request
