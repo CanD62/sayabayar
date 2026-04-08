@@ -61,8 +61,16 @@ async function buildApp() {
   })
 
   // ── Global Plugins ────────────────────────────────────────
+  const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:3000')
+    .split(',').map(o => o.trim()).filter(Boolean)
+
   await app.register(cors, {
-    origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+    origin: (origin, cb) => {
+      // Izinkan request tanpa origin (curl, server-to-server, Postman)
+      if (!origin) return cb(null, true)
+      if (allowedOrigins.includes(origin)) return cb(null, true)
+      cb(new Error(`CORS: origin tidak diizinkan — ${origin}`), false)
+    },
     credentials: true,
     maxAge: 86400, // Cache preflight for 1 day — prevents OPTIONS on every request
     methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
