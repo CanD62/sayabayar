@@ -159,7 +159,8 @@ export async function subscriptionRoutes(fastify) {
     const paymentToken = generatePaymentToken()
     const expiredAt = new Date(Date.now() + 24 * 60 * 60 * 1000) // 24 hours
     const amount = Number(plan.monthlyPrice)
-    const paymentUrl = `${process.env.FRONTEND_URL}/pay/${paymentToken}`
+    const frontendBaseUrl = (process.env.FRONTEND_URL || 'http://localhost:3000').replace(/["']/g, '').split(/[\s,]+/).map(o => o.trim().replace(/\/$/, '')).filter(Boolean)[0]
+    const paymentUrl = `${frontendBaseUrl}/pay/${paymentToken}`
 
     const invoice = await createInvoiceWithRetry(db, {
       clientId: request.client.id,
