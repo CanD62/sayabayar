@@ -62,7 +62,10 @@ async function buildApp() {
 
   // ── Global Plugins ────────────────────────────────────────
   const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:3000')
-    .split(',').map(o => o.trim()).filter(Boolean)
+    .replace(/["']/g, '') // Hapus tanda kutip jika terbawa dari docker run bash
+    .split(/[\s,]+/)      // Pisahkan dengan koma ATAU spasi/enter
+    .map(o => o.trim().replace(/\/$/, ''))  // Buang space tersisa & trailing slash di ujung (contoh: https://a.com/ -> https://a.com)
+    .filter(Boolean)
 
   await app.register(cors, {
     origin: (origin, cb) => {
