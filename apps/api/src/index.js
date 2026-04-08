@@ -73,7 +73,10 @@ async function buildApp() {
         return cb(null, true)
       }
       
-      // Jika origin tidak diizinkan, return false (tanpa error) agar fastify membalas dengan wajar
+      // LOG origin yang ditolak agar kita tahu masalahnya
+      console.warn(`[CORS] Origin rejected: "${origin}" (Allowed: ${allowedOrigins.join(', ')})`)
+      
+      // Jika origin tidak diizinkan, return false
       cb(null, false)
     },
     credentials: true,
