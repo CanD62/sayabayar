@@ -53,8 +53,11 @@ export async function invoiceRoutes(fastify) {
   fastify.get('/events', async (request, reply) => {
     const raw = reply.raw
     // reply.hijack() bypasses @fastify/cors, so we must set CORS headers manually
-    const origin = process.env.FRONTEND_URL || 'http://localhost:3000'
-    raw.setHeader('Access-Control-Allow-Origin', origin)
+    const reqOrigin = request.headers.origin
+    const allowed = (process.env.FRONTEND_URL || 'http://localhost:3000')
+      .replace(/["']/g, '').split(/[\s,]+/).map(o => o.trim().replace(/\/$/, '')).filter(Boolean)
+    const validOrigin = reqOrigin && allowed.includes(reqOrigin) ? reqOrigin : (allowed[0] || 'http://localhost:3000')
+    raw.setHeader('Access-Control-Allow-Origin', validOrigin)
     raw.setHeader('Access-Control-Allow-Credentials', 'true')
     raw.setHeader('Content-Type', 'text/event-stream')
     raw.setHeader('Cache-Control', 'no-cache')
