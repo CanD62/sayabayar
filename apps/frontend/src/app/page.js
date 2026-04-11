@@ -32,14 +32,7 @@ export const metadata = {
     title: `${APP_NAME} — Terima Pembayaran Otomatis Tanpa Potongan`,
     description:
       'Invoice otomatis, verifikasi transfer BCA/QRIS real-time, dana langsung ke rekening Anda. Gratis untuk mulai. Upgrade ke Pro untuk kontrol penuh.',
-    images: [
-      {
-        url: `${SITE_URL}/og-image.jpg`,
-        width: 1200,
-        height: 630,
-        alt: `${APP_NAME} — Platform Invoice & Pembayaran Otomatis Indonesia`,
-      },
-    ],
+
     locale: 'id_ID',
   },
   twitter: {
@@ -47,7 +40,7 @@ export const metadata = {
     title: `${APP_NAME} — Terima Pembayaran Otomatis`,
     description:
       'Invoice BCA/QRIS otomatis. Dana langsung ke rekening Anda. Tanpa potongan fee per transaksi.',
-    images: [`${SITE_URL}/og-image.jpg`],
+
   },
   robots: {
     index: true,
@@ -139,7 +132,7 @@ const jsonLd = {
         'API key',
         'Notifikasi instan',
       ],
-      screenshot: `${SITE_URL}/og-image.jpg`,
+      screenshot: `${SITE_URL}/logo.png`,
       offers: [
         {
           '@type': 'Offer',
