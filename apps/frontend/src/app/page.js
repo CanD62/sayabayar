@@ -9,7 +9,7 @@ export const metadata = {
   metadataBase: new URL(SITE_URL),
   title: `${APP_NAME} — Payment Gateway Tanpa Perantara`,
   description:
-    'Buat invoice dalam hitungan detik, pelanggan transfer BCA atau QRIS (BCA, BRI, GoPay), sistem langsung mencocokkan otomatis. Tanpa cek mutasi manual, tanpa potongan per transaksi. Gratis untuk mulai.',
+    'Buat invoice dalam hitungan detik, pelanggan transfer BCA atau scan QRIS (BCA, BRI, GoPay), sistem langsung mencocokkan otomatis. Tanpa cek mutasi manual, tanpa potongan per transaksi. Gratis untuk mulai.',
   keywords: [
     'payment gateway indonesia',
     'invoice otomatis',
@@ -32,7 +32,7 @@ export const metadata = {
     siteName: APP_NAME,
     title: `${APP_NAME} — Terima Pembayaran Otomatis Tanpa Potongan`,
     description:
-      'Invoice otomatis, verifikasi transfer BCA/QRIS BRI/QRIS BCA real-time, dana langsung ke rekening Anda. Gratis untuk mulai. Upgrade ke Pro untuk kontrol penuh.',
+      'Invoice otomatis, verifikasi transfer BCA dan QRIS Merchant (BCA, BRI, GoPay) real-time, dana langsung ke rekening Anda. Gratis untuk mulai.',
 
     locale: 'id_ID',
   },
@@ -40,7 +40,7 @@ export const metadata = {
     card: 'summary_large_image',
     title: `${APP_NAME} — Terima Pembayaran Otomatis`,
     description:
-      'Invoice BCA/QRIS BRI otomatis. Dana langsung ke rekening Anda. Tanpa potongan fee per transaksi.',
+      'Invoice BCA Transfer & QRIS Merchant otomatis. Dana langsung ke rekening Anda. Tanpa potongan fee.',
 
   },
   robots: {
@@ -123,12 +123,13 @@ const jsonLd = {
       operatingSystem: 'Web',
       url: SITE_URL,
       description:
-        'Sistem invoice dan verifikasi pembayaran otomatis via transfer bank BCA, QRIS BRI, dan QRIS BCA untuk bisnis Indonesia. Tidak perlu cek mutasi manual.',
+        'Sistem invoice dan verifikasi pembayaran otomatis via transfer bank BCA dan QRIS Merchant (BCA, BRI, GoPay) untuk bisnis Indonesia.',
       featureList: [
         'Verifikasi pembayaran otomatis',
         'Invoice BCA Transfer',
-        'Invoice QRIS BRI',
         'Invoice QRIS BCA',
+        'Invoice QRIS BRI',
+        'Invoice QRIS GoPay',
         'Webhook realtime',
         'Dashboard terpusat',
         'API key',

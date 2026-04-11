@@ -26,7 +26,7 @@ const FEATURES = [
   {
     icon: Building2,
     title: 'Dana Langsung ke Rekening Anda (Pro)',
-    desc: 'Tambah rekening sendiri (BCA, BRI & QRIS). Dana masuk 100% langsung ke rekening Anda — tanpa perantara, tanpa potongan.',
+    desc: 'Tambah rekening bank (BCA) dan merchant QRIS (BCA, BRI, GoPay). Dana masuk 100% langsung ke rekening Anda — tanpa perantara, tanpa potongan.',
   },
   {
     icon: Bell,
@@ -582,7 +582,7 @@ export default function LandingShell() {
               </p>
               <ul className="lp-pricing-features" aria-label="Fitur paket Pro">
                 <li><CheckCircle size={16} /> Semua fitur Gratis</li>
-                <li><CheckCircle size={16} /> Tambah rekening sendiri (BCA, BRI &amp; QRIS)</li>
+                <li><CheckCircle size={16} /> Transfer Bank (BCA) &amp; QRIS Merchant (BCA, BRI, GoPay)</li>
                 <li><CheckCircle size={16} /> Dana langsung masuk ke rekening Anda</li>
                 <li><CheckCircle size={16} /> Tanpa biaya per transaksi (0%)</li>
                 <li><CheckCircle size={16} /> Channel platform sebagai backup</li>
