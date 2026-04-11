@@ -21,6 +21,51 @@ export async function adminRoutes(fastify) {
   const db = fastify.db
   const flipQueue = getFlipQueue()
 
+  // ── Shared helpers ──────────────────────────────────────
+  /** Decode device_identifier from Flip JWT token */
+  function decodeDeviceId(token) {
+    try {
+      const b64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')
+      const pad = b64.padEnd(b64.length + (4 - b64.length % 4) % 4, '=')
+      return JSON.parse(Buffer.from(pad, 'base64').toString())?.data?.device_identifier
+    } catch { return null }
+  }
+
+  /** Decode JWT payload */
+  function decodeJwt(t) {
+    try {
+      const b64 = t.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')
+      const padded = b64.padEnd(b64.length + (4 - b64.length % 4) % 4, '=')
+      return JSON.parse(Buffer.from(padded, 'base64').toString('utf8'))
+    } catch { return null }
+  }
+
+  /** Build standard Alaflip API headers */
+  function alaflipHeaders(token, deviceId) {
+    return {
+      'Authorization': `Bearer ${token}`,
+      'api-key': 'EDdwAw954mv4VyjpXLXZ5pRehJNXNmhsqdMbPFyaDq28aAhz',
+      'x-internal-api-key': 'VlhObGNsQnliMlpwYkdWQmJtUkJkWFJvWlc1MGFXTmhkR2x2YmxObGNuWnBZMlU2T1RBNQ==',
+      ...(deviceId ? { 'x-device-id': deviceId } : {}),
+      'accept-language': 'en-ID',
+      'content-language': 'en-ID',
+      'content-type': 'application/x-www-form-urlencoded',
+      'Host': 'customer.flip.id',
+      'User-Agent': 'okhttp/4.10.0',
+    }
+  }
+
+  /** Fetch Alaflip balance from Flip API. Returns { balance, account_id, account_name } or null */
+  async function fetchAlaflipBalance(token, userId) {
+    const deviceId = decodeDeviceId(token)
+    const res = await fetch(
+      `https://customer.flip.id/alaflip/api/v1/users/${userId}/balance`,
+      { method: 'GET', headers: alaflipHeaders(token, deviceId) }
+    )
+    const body = await res.json()
+    return body?.data || null
+  }
+
   // All admin routes require: auth + active status + isAdmin
   fastify.addHook('preHandler', authenticate)
   fastify.addHook('preHandler', checkClientStatus)
@@ -76,13 +121,14 @@ export async function adminRoutes(fastify) {
     ])
 
     // Build 7-day chart data
+    const fmtDate = (dt) => `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`
     const chartData = []
     for (let i = 6; i >= 0; i--) {
       const d = new Date(now)
       d.setDate(d.getDate() - i)
       d.setHours(0, 0, 0, 0)
-      const dateStr = d.toISOString().slice(0, 10)
-      const dayEntries = dailyPaid.filter(e => e.paidAt && e.paidAt.toISOString().slice(0, 10) === dateStr)
+      const dateStr = fmtDate(d)
+      const dayEntries = dailyPaid.filter(e => e.paidAt && fmtDate(new Date(e.paidAt)) === dateStr)
       const volume = dayEntries.reduce((s, e) => s + Number(e._sum.amount || 0), 0)
       const count = dayEntries.reduce((s, e) => s + e._count, 0)
       chartData.push({ date: dateStr, volume, count })
@@ -742,14 +788,6 @@ export async function adminRoutes(fastify) {
     try {
       const newToken = await svc.refreshToken(provider)
 
-      // Decode payload untuk response
-      function decodeJwt(t) {
-        try {
-          const b64 = t.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')
-          const padded = b64.padEnd(b64.length + (4 - b64.length % 4) % 4, '=')
-          return JSON.parse(Buffer.from(padded, 'base64').toString('utf8'))
-        } catch { return null }
-      }
       const payload = decodeJwt(newToken)
 
       fastify.log.info('[Admin] Flip token refreshed manually')
@@ -787,13 +825,6 @@ export async function adminRoutes(fastify) {
     if (!provider) return reply.fail('RESOURCE_NOT_FOUND', 'Payment provider belum dikonfigurasi.', 404)
     if (!provider.token) return reply.fail('VALIDATION_ERROR', 'Token belum ada di database.', 422)
 
-    function decodeJwt(t) {
-      try {
-        const b64 = t.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')
-        const padded = b64.padEnd(b64.length + (4 - b64.length % 4) % 4, '=')
-        return JSON.parse(Buffer.from(padded, 'base64').toString('utf8'))
-      } catch { return null }
-    }
 
     const results = {}
 
@@ -850,32 +881,11 @@ export async function adminRoutes(fastify) {
     const userId = results.token_info.user_id || provider.userId
     if (userId) {
       try {
-        const balancePayload = decodeJwt(activeToken)
-        const deviceId = balancePayload?.data?.device_identifier
-
-        const balRes = await fetch(
-          `https://customer.flip.id/alaflip/api/v1/users/${userId}/balance`,
-          {
-            method: 'GET',
-            headers: {
-              'Authorization': `Bearer ${activeToken}`,
-              'api-key': 'EDdwAw954mv4VyjpXLXZ5pRehJNXNmhsqdMbPFyaDq28aAhz',
-              'x-internal-api-key': 'VlhObGNsQnliMlpwYkdWQmJtUkJkWFJvWlc1MGFXTmhkR2x2YmxObGNuWnBZMlU2T1RBNQ==',
-              ...(deviceId ? { 'x-device-id': deviceId } : {}),
-              'accept-language': 'en-ID',
-              'content-language': 'en-ID',
-              'content-type': 'application/x-www-form-urlencoded',
-              'Host': 'customer.flip.id',
-              'User-Agent': 'okhttp/4.10.0',
-            }
-          }
-        )
-        const balBody = await balRes.json().catch(() => ({}))
+        const balData = await fetchAlaflipBalance(activeToken, userId)
         results.alaflip_balance = {
-          ok: balRes.ok,
-          balance: balBody?.data?.balance ?? null,
-          status: balBody?.data?.status ?? null,
-          raw: balRes.ok ? undefined : balBody,
+          ok: !!balData,
+          balance: balData?.balance ?? null,
+          status: balData?.status ?? null,
         }
       } catch (e) {
         results.alaflip_balance = { ok: false, error: e.message }
@@ -1177,13 +1187,6 @@ export async function adminRoutes(fastify) {
       const { encrypt } = await import('@payment-gateway/shared/crypto')
 
       // Decode JWT untuk ambil user_id otomatis
-      function decodeJwt(t) {
-        try {
-          const b64 = t.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')
-          const padded = b64.padEnd(b64.length + (4 - b64.length % 4) % 4, '=')
-          return JSON.parse(Buffer.from(padded, 'base64').toString('utf8'))
-        } catch { return null }
-      }
       const payload = decodeJwt(finalToken)
       const flipEmail = email || payload?.data?.email || 'unknown@flip.id'
       const flipUserId = user_id || String(payload?.data?.id || '')
@@ -1710,6 +1713,220 @@ export async function adminRoutes(fastify) {
   })
 
   // ══════════════════════════════════════════════════════════
+  // TOP-UP FLIP (Add Funds)
+  // ══════════════════════════════════════════════════════════
+
+  // ── POST /admin/topup-flip ──────────────────────────────
+  // Buat top-up saldo Flip (superflip) dari bank transfer.
+  // Flow: topup → mendapat ID + bank tujuan + unique_code → user transfer manual → confirm
+  fastify.post('/topup-flip', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['amount', 'sender_bank'],
+        properties: {
+          amount: { type: 'integer', minimum: 10000 },
+          sender_bank: { type: 'string', maxLength: 50 },
+        }
+      }
+    }
+  }, async (request, reply) => {
+    const { amount, sender_bank } = request.body
+
+    const { createPaymentProviderService } = await import('../services/paymentProvider.js')
+    const svc = createPaymentProviderService(db, fastify.redis)
+
+    const provider = await db.paymentProvider.findUnique({ where: { providerName: 'flip' } })
+    if (!provider) return reply.fail('NOT_CONFIGURED', 'Provider Flip belum dikonfigurasi.', 400)
+    if (!provider.userId) return reply.fail('NO_USER_ID', 'userId belum tersedia.', 400)
+
+    // Ambil account_number Alaflip
+    const token = await svc.getToken()
+    let accountNumber
+    try {
+      const balData = await fetchAlaflipBalance(token, provider.userId)
+      fastify.log.info(`[Admin] Alaflip balance response: ${JSON.stringify(balData || {})}`)
+      accountNumber = balData?.account_id
+    } catch (e) {
+      fastify.log.error(`[Admin] Alaflip balance fetch error: ${e.message}`)
+    }
+    if (!accountNumber) return reply.fail('NO_ACCOUNT', 'account_id Alaflip tidak tersedia. Pastikan Alaflip sudah diaktifkan.', 400)
+
+    const idempotencyKey = `${provider.userId}_${Math.floor(Date.now() / 1000)}`
+
+    try {
+      const result = await svc.topup({
+        senderBank: sender_bank,
+        senderBankType: 'bank_account',
+        amount,
+        accountNumber,
+        idempotencyKey,
+      })
+
+      fastify.log.info(`[Admin] Topup Flip created: ${result.id}, amount=${amount}, bank=${sender_bank}`)
+      return reply.success({
+        topup_id: result.id,
+        amount: result.amount,
+        unique_code: result.unique_code,
+        total_transfer: result.amount + (result.unique_code || 0),
+        status: result.status,
+        sender_bank: result.sender_bank,
+        receiver_bank: result.flip_receiver_bank,
+        expired_at: result.expired_at ? new Date(result.expired_at * 1000).toISOString() : null,
+        idempotency_key: idempotencyKey,
+        message: `Transfer Rp ${(result.amount + (result.unique_code || 0)).toLocaleString('id-ID')} ke ${result.flip_receiver_bank?.bank?.toUpperCase() || 'bank'} (${result.flip_receiver_bank?.account_number || '-'}) a.n. ${result.flip_receiver_bank?.name || '-'}`,
+      })
+    } catch (e) {
+      fastify.log.error(`[Admin] Topup Flip failed: ${e.message}`)
+      return reply.fail('FLIP_ERROR', e.message, 502)
+    }
+  })
+
+  // ── POST /admin/topup-flip/:id/confirm ──────────────────
+  // Konfirmasi setelah transfer bank dilakukan
+  fastify.post('/topup-flip/:id/confirm', async (request, reply) => {
+    const topupId = request.params.id
+
+    const { createPaymentProviderService } = await import('../services/paymentProvider.js')
+    const svc = createPaymentProviderService(db, fastify.redis)
+
+    const provider = await db.paymentProvider.findUnique({ where: { providerName: 'flip' } })
+    if (!provider) return reply.fail('NOT_CONFIGURED', 'Provider Flip belum dikonfigurasi.', 400)
+
+    const idempotencyKey = `${provider.userId}_${Math.floor(Date.now() / 1000)}`
+
+    try {
+      const result = await svc.confirmTopup(topupId, idempotencyKey)
+      fastify.log.info(`[Admin] Topup ${topupId} confirmed`)
+      return reply.success({ topup_id: topupId, message: result.message || 'Top up confirmed', ...result })
+    } catch (e) {
+      fastify.log.error(`[Admin] Topup confirm failed: ${e.message}`)
+      return reply.fail('FLIP_ERROR', e.message, 502)
+    }
+  })
+
+  // ── GET /admin/topup-flip/coin-balance ──────────────────
+  // Cek saldo Flip Coin
+  fastify.get('/topup-flip/coin-balance', async (request, reply) => {
+    const { createPaymentProviderService } = await import('../services/paymentProvider.js')
+    const svc = createPaymentProviderService(db, fastify.redis)
+
+    try {
+      const amount = await svc.getCoinBalance()
+      return reply.success({ coin_balance: amount })
+    } catch (e) {
+      return reply.fail('FLIP_ERROR', e.message, 502)
+    }
+  })
+
+  // ── GET /admin/topup-flip/alaflip-balance ──────────────
+  // Saldo Alaflip LIVE dari Flip API (bukan DB)
+  fastify.get('/topup-flip/alaflip-balance', async (request, reply) => {
+    const { createPaymentProviderService } = await import('../services/paymentProvider.js')
+    const svc = createPaymentProviderService(db, fastify.redis)
+
+    const provider = await db.paymentProvider.findUnique({ where: { providerName: 'flip' } })
+    if (!provider?.userId) return reply.fail('NOT_CONFIGURED', 'Provider belum dikonfigurasi', 400)
+
+    try {
+      const token = await svc.getToken()
+      const balData = await fetchAlaflipBalance(token, provider.userId)
+      const balance = balData?.balance ?? null
+
+      // Sync ke DB juga
+      if (balance !== null) {
+        await db.paymentProvider.update({
+          where: { providerName: 'flip' },
+          data: { balance }
+        })
+      }
+
+      return reply.success({
+        balance,
+        account_id: balData?.account_id || null,
+        account_name: balData?.account_name || null,
+      })
+    } catch (e) {
+      return reply.fail('FLIP_ERROR', e.message, 502)
+    }
+  })
+
+  // ── GET /admin/topup-flip/payment-methods ───────────────
+  // Daftar bank & fee
+  fastify.get('/topup-flip/payment-methods', {
+    schema: {
+      querystring: {
+        type: 'object',
+        properties: { amount: { type: 'integer', minimum: 10000, default: 50000 } }
+      }
+    }
+  }, async (request, reply) => {
+    const { amount = 50000 } = request.query
+
+    const { createPaymentProviderService } = await import('../services/paymentProvider.js')
+    const svc = createPaymentProviderService(db, fastify.redis)
+
+    try {
+      const result = await svc.getPaymentMethods(amount)
+      return reply.success(result)
+    } catch (e) {
+      return reply.fail('FLIP_ERROR', e.message, 502)
+    }
+  })
+
+  // ── GET /admin/topup-flip/:id/status ────────────────────
+  // Polling status top-up (parametric route — harus setelah static routes)
+  fastify.get('/topup-flip/:id/status', async (request, reply) => {
+    const topupId = request.params.id
+
+    const { createPaymentProviderService } = await import('../services/paymentProvider.js')
+    const svc = createPaymentProviderService(db, fastify.redis)
+
+    try {
+      const result = await svc.getTopupStatus(topupId)
+      const status = result.status
+
+      // Jika topup selesai → fetch saldo terbaru & update DB
+      let newBalance = null
+      if (status === 'DONE' || status === 'PROCESSED') {
+        try {
+          const provider = await db.paymentProvider.findUnique({ where: { providerName: 'flip' } })
+          if (provider?.userId) {
+            const token = await svc.getToken()
+            const balData = await fetchAlaflipBalance(token, provider.userId)
+            newBalance = balData?.balance ?? null
+
+            if (newBalance !== null) {
+              await db.paymentProvider.update({
+                where: { providerName: 'flip' },
+                data: { balance: newBalance }
+              })
+              fastify.log.info(`[Admin] Flip balance updated after topup: Rp ${newBalance}`)
+            }
+          }
+        } catch (e) {
+          fastify.log.error(`[Admin] Failed to sync balance after topup: ${e.message}`)
+        }
+      }
+
+      return reply.success({
+        topup_id: result.id,
+        amount: result.amount,
+        unique_code: result.unique_code,
+        status,
+        sender_bank: result.sender_bank,
+        receiver_bank: result.flip_receiver_bank,
+        created_at: result.created_at ? new Date(result.created_at * 1000).toISOString() : null,
+        confirmed_at: result.confirmed_at ? new Date(result.confirmed_at * 1000).toISOString() : null,
+        completed_at: result.completed_at ? new Date(result.completed_at * 1000).toISOString() : null,
+        ...(newBalance !== null ? { new_balance: newBalance } : {}),
+      })
+    } catch (e) {
+      return reply.fail('FLIP_ERROR', e.message, 502)
+    }
+  })
+
+  // ══════════════════════════════════════════════════════════
   // SUBSCRIPTION REPORT
   // ══════════════════════════════════════════════════════════
 
@@ -1778,16 +1995,19 @@ export async function adminRoutes(fastify) {
       orderBy: { paidAt: 'desc' },
     })
 
+    // Helper: format local YYYY-MM
+    const fmtMonth = (dt) => `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`
+
     // Group by month
     const monthlyData = {}
     for (let i = 0; i < months; i++) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
-      const key = d.toISOString().slice(0, 7)
+      const key = fmtMonth(d)
       monthlyData[key] = { month: key, revenue: 0, count: 0, merchants: [] }
     }
 
     for (const inv of subInvoices) {
-      const key = inv.paidAt.toISOString().slice(0, 7)
+      const key = fmtMonth(new Date(inv.paidAt))
       if (monthlyData[key]) {
         monthlyData[key].revenue += Number(inv.amount)
         monthlyData[key].count += 1
@@ -1809,12 +2029,12 @@ export async function adminRoutes(fastify) {
     // ── 3. Summary stats ─────────────────────────────────
     const totalActiveSubscribers = subscribers.filter(s => s.status !== 'expired').length
     const expiringSoon = subscribers.filter(s => s.status === 'expiring_soon').length
-    const thisMonthKey = now.toISOString().slice(0, 7)
+    const thisMonthKey = fmtMonth(now)
     const thisMonthRevenue = monthlyData[thisMonthKey]?.revenue || 0
     const thisMonthCount = monthlyData[thisMonthKey]?.count || 0
 
     // Renewal rate: merchants who paid last month AND this month
-    const lastMonthKey = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().slice(0, 7)
+    const lastMonthKey = fmtMonth(new Date(now.getFullYear(), now.getMonth() - 1, 1))
     const lastMonthMerchants = new Set((monthlyData[lastMonthKey]?.merchants || []).map(m => m.client_id))
     const thisMonthMerchants = new Set((monthlyData[thisMonthKey]?.merchants || []).map(m => m.client_id))
     const renewedCount = [...lastMonthMerchants].filter(id => thisMonthMerchants.has(id)).length

@@ -13,7 +13,7 @@ const PLATFORM_CLIENT_ID = 'platform-owner-000000000000000'
 
 function generateInvoiceNumber() {
   const now = new Date()
-  const date = now.toISOString().slice(0, 10).replace(/-/g, '')
+  const date = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`
   const rand = String(Math.floor(Math.random() * 10000)).padStart(4, '0')
   return `SUB-${date}-${rand}`
 }
@@ -31,7 +31,7 @@ async function createInvoiceWithRetry(db, data, maxRetries = 5) {
       if (!isUniqueViolation || attempt === maxRetries - 1) throw err
       // Regenerate invoice number with extra entropy on retries
       const now = new Date()
-      const date = now.toISOString().slice(0, 10).replace(/-/g, '')
+      const date = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`
       const rand = String(Math.floor(Math.random() * 10000)).padStart(4, '0')
       const ms = String(now.getMilliseconds()).padStart(3, '0')
       data.invoiceNumber = `SUB-${date}-${rand}${ms}`

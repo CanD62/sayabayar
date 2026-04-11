@@ -86,7 +86,7 @@ export default function AdminSettingsPage() {
   const [testing, setTesting]     = useState(false)
   const [testResults, setTestResults] = useState(null)
   const [testError, setTestError] = useState(null)
-  const [testForm, setTestForm]   = useState({ account_number: '', bank: '' })
+
   const [expanded, setExpanded]   = useState({})
 
   // ── Manual refresh state ──────────────────────────────────
@@ -181,12 +181,7 @@ export default function AdminSettingsPage() {
     setTestError(null)
     setExpanded({})
     try {
-      const body = {}
-      if (testForm.account_number.trim() && testForm.bank.trim()) {
-        body.account_number = testForm.account_number.trim()
-        body.bank           = testForm.bank.trim()
-      }
-      const r = await api.post('/v1/admin/provider/test-connection', body)
+      const r = await api.post('/v1/admin/provider/test-connection', {})
       setTestResults(r.data)
     } catch (e) {
       setTestError(e.message)
@@ -455,35 +450,6 @@ export default function AdminSettingsPage() {
           <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 20 }}>
             Klik tombol di bawah untuk menguji token yang tersimpan, refresh token, ambil list bank, dan cek saldo Alaflip secara berurutan.
           </p>
-
-          {/* Form cek rekening opsional */}
-          <div style={{
-            padding: '14px 16px', borderRadius: 10, marginBottom: 16,
-            background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.07)',
-          }}>
-            <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginBottom: 10, fontWeight: 600 }}>
-              <CreditCard size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />
-              Cek Rekening (Opsional)
-            </div>
-            <div style={{ display: 'flex', gap: 10 }}>
-              <input
-                type="text"
-                className="form-input"
-                placeholder="Nomor rekening"
-                value={testForm.account_number}
-                onChange={e => setTestForm(f => ({ ...f, account_number: e.target.value.replace(/\D/g, '') }))}
-                style={{ flex: 2, fontSize: '0.82rem' }}
-              />
-              <input
-                type="text"
-                className="form-input"
-                placeholder="Kode bank (bca, bni...)"
-                value={testForm.bank}
-                onChange={e => setTestForm(f => ({ ...f, bank: e.target.value.toLowerCase().trim() }))}
-                style={{ flex: 1, fontSize: '0.82rem' }}
-              />
-            </div>
-          </div>
 
           <button
             onClick={handleTest}

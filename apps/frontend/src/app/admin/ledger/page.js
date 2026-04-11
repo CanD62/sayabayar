@@ -1,7 +1,7 @@
 'use client'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { api } from '@/lib/api'
-import { X, AlertTriangle } from 'lucide-react'
+import { X, AlertTriangle, Plus, ArrowUpRight, Copy, Check, Loader2, RefreshCw } from 'lucide-react'
 import AdminTable from '@/components/AdminTable'
 
 const fmt = (n) => new Intl.NumberFormat('id-ID').format(Math.round(n))
@@ -11,6 +11,20 @@ const TYPE_CONFIG = {
   credit_available: { label: 'Credit Available',  cls: 'badge-success', prefix: '+' },
   debit_withdraw:   { label: 'Debit Withdraw',    cls: 'badge-danger',  prefix: '−' },
 }
+
+const BANK_OPTIONS = [
+  { code: 'mandiri', name: 'Bank Mandiri' },
+  { code: 'bca', name: 'BCA' },
+  { code: 'bni', name: 'BNI' },
+  { code: 'bri', name: 'BRI' },
+  { code: 'bsm', name: 'BSI' },
+  { code: 'permata', name: 'Bank Permata' },
+  { code: 'cimb', name: 'CIMB Niaga' },
+  { code: 'danamon', name: 'Danamon' },
+  { code: 'muamalat', name: 'Muamalat' },
+  { code: 'btn', name: 'BTN' },
+  { code: 'dbs', name: 'DBS' },
+]
 
 function Countdown({ targetDate }) {
   const [timeLeft, setTimeLeft] = useState('')
@@ -56,6 +70,491 @@ function SettlementCell({ entry }) {
   return <span style={{ color: 'var(--text-muted)' }}>—</span>
 }
 
+// ── Searchable Bank Select ──────────────────────────────────
+function BankSearchSelect({ value, onChange, options }) {
+  const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState('')
+  const ref = useRef(null)
+
+  useEffect(() => {
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const selected = options.find(o => o.code === value)
+  const filtered = options.filter(o =>
+    o.name.toLowerCase().includes(search.toLowerCase()) || o.code.toLowerCase().includes(search.toLowerCase())
+  )
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button
+        type="button"
+        onClick={() => { setOpen(!open); setSearch('') }}
+        id="topup-bank"
+        style={{
+          width: '100%', padding: '10px 12px', borderRadius: 10, textAlign: 'left',
+          borderWidth: 1, borderStyle: 'solid', borderColor: open ? '#6366f1' : 'var(--border, rgba(255,255,255,0.1))',
+          background: 'var(--bg-input, rgba(255,255,255,0.04))',
+          color: 'var(--text-primary)', fontSize: '0.88rem', cursor: 'pointer',
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          transition: 'border-color 0.2s',
+        }}
+      >
+        <span>{selected?.name || value}</span>
+        <span style={{ fontSize: '0.6rem', color: 'var(--text-muted)', transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>▼</span>
+      </button>
+
+      {open && (
+        <div style={{
+          position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 10,
+          marginTop: 4, borderRadius: 10, overflow: 'hidden',
+          background: 'var(--bg-card, #1a1a2e)',
+          borderWidth: 1, borderStyle: 'solid', borderColor: 'var(--border, rgba(255,255,255,0.1))',
+          boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+        }}>
+          {/* Search input */}
+          <div style={{ padding: '8px 10px', borderBottomWidth: 1, borderBottomStyle: 'solid', borderBottomColor: 'var(--border, rgba(255,255,255,0.08))' }}>
+            <input
+              autoFocus
+              type="text"
+              placeholder="Cari bank..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              style={{
+                width: '100%', padding: '6px 8px', borderRadius: 6,
+                borderWidth: 1, borderStyle: 'solid', borderColor: 'var(--border, rgba(255,255,255,0.1))',
+                background: 'rgba(255,255,255,0.04)', color: 'var(--text-primary)',
+                fontSize: '0.82rem', outline: 'none',
+              }}
+            />
+          </div>
+          {/* Options */}
+          <div style={{ maxHeight: 180, overflowY: 'auto' }}>
+            {filtered.length === 0 && (
+              <div style={{ padding: '10px 14px', fontSize: '0.78rem', color: 'var(--text-muted)' }}>Tidak ditemukan</div>
+            )}
+            {filtered.map(b => (
+              <button
+                key={b.code}
+                type="button"
+                onClick={() => { onChange(b.code); setOpen(false); setSearch('') }}
+                style={{
+                  width: '100%', padding: '8px 14px', borderWidth: 0, textAlign: 'left',
+                  background: b.code === value ? 'rgba(99,102,241,0.12)' : 'transparent',
+                  color: b.code === value ? '#818cf8' : 'var(--text-primary)',
+                  fontSize: '0.85rem', cursor: 'pointer', fontWeight: b.code === value ? 700 : 400,
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  transition: 'background 0.1s',
+                }}
+                onMouseEnter={e => { if (b.code !== value) e.currentTarget.style.background = 'rgba(255,255,255,0.04)' }}
+                onMouseLeave={e => { if (b.code !== value) e.currentTarget.style.background = 'transparent' }}
+              >
+                <span>{b.name}</span>
+                {b.code === value && <Check size={14} style={{ color: '#6366f1' }} />}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Top-up Flip Modal ──────────────────────────────────────
+function TopupFlipModal({ open, onClose, defaultAmount, onSuccess }) {
+  const [step, setStep] = useState('form') // form → transferring → confirming → polling → done
+  const [amount, setAmount] = useState(defaultAmount || 50000)
+  const [senderBank, setSenderBank] = useState('mandiri')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [topupData, setTopupData] = useState(null)
+  const [copied, setCopied] = useState('')
+  const [pollInterval, setPollInterval] = useState(null)
+  const [flipBalance, setFlipBalance] = useState(null)
+  const [balanceLoading, setBalanceLoading] = useState(false)
+
+  useEffect(() => {
+    if (open) {
+      setStep('form')
+      setAmount(defaultAmount || 50000)
+      setSenderBank('mandiri')
+      setError('')
+      setTopupData(null)
+      setCopied('')
+      setFlipBalance(null)
+      // Fetch live balance
+      setBalanceLoading(true)
+      api.get('/v1/admin/topup-flip/alaflip-balance')
+        .then(res => setFlipBalance(res.data))
+        .catch(() => {})
+        .finally(() => setBalanceLoading(false))
+    }
+    return () => { if (pollInterval) clearInterval(pollInterval) }
+  }, [open])
+
+  const copyText = (text, label) => {
+    navigator.clipboard.writeText(text)
+    setCopied(label)
+    setTimeout(() => setCopied(''), 2000)
+  }
+
+  // Step 1: Create topup
+  const handleCreateTopup = async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const res = await api.post('/v1/admin/topup-flip', { amount: Math.round(amount), sender_bank: senderBank })
+      setTopupData(res.data)
+      setStep('transferring')
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Step 2: Confirm topup (after manual bank transfer)
+  const handleConfirm = async () => {
+    if (!topupData?.topup_id) return
+    setLoading(true)
+    setError('')
+    try {
+      // Strip 'FT' prefix if present
+      const rawId = topupData.topup_id.replace(/^FT/, '')
+      await api.post(`/v1/admin/topup-flip/${rawId}/confirm`)
+      setStep('polling')
+      startPolling(rawId)
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Step 3: Poll status
+  const startPolling = (id) => {
+    let count = 0
+    const iv = setInterval(async () => {
+      count++
+      try {
+        const res = await api.get(`/v1/admin/topup-flip/${id}/status`)
+        const status = res.data?.status
+        setTopupData(prev => ({ ...prev, ...res.data }))
+        if (status === 'DONE' || status === 'PROCESSED') {
+          clearInterval(iv)
+          setPollInterval(null)
+          setStep('done')
+          onSuccess?.()
+        }
+      } catch {}
+      if (count > 60) { clearInterval(iv); setPollInterval(null) } // max 5 min
+    }, 5000)
+    setPollInterval(iv)
+  }
+
+  if (!open) return null
+
+  const totalTransfer = topupData ? (topupData.amount || 0) + (topupData.unique_code || 0) : 0
+  const receiverBank = topupData?.receiver_bank
+
+  return (
+    <div style={styles.overlay} onClick={onClose}>
+      <div style={styles.modal} onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div style={styles.modalHeader}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={styles.iconCircle}><ArrowUpRight size={16} /></div>
+            <span style={{ fontWeight: 700, fontSize: '0.95rem' }}>Top Up Saldo Flip</span>
+          </div>
+          <button onClick={onClose} style={styles.closeBtn}><X size={16} /></button>
+        </div>
+
+        {/* Error */}
+        {error && (
+          <div style={styles.errorBox}>
+            <AlertTriangle size={14} /> {error}
+          </div>
+        )}
+
+        {/* Step: Form */}
+        {step === 'form' && (
+          <div style={styles.body}>
+            {/* Current Balance */}
+            <div style={{
+              padding: '12px 16px', borderRadius: 12, marginBottom: 16,
+              background: 'rgba(99,102,241,0.08)',
+              borderWidth: 1, borderStyle: 'solid', borderColor: 'rgba(99,102,241,0.2)',
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            }}>
+              <div>
+                <div style={{ fontSize: '0.65rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 2 }}>
+                  Saldo Flip Saat Ini
+                </div>
+                {balanceLoading ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text-muted)', fontSize: '0.82rem' }}>
+                    <Loader2 size={12} className="spin" /> Memuat...
+                  </div>
+                ) : flipBalance ? (
+                  <div style={{ fontWeight: 800, fontSize: '1.15rem', color: '#818cf8', fontFamily: 'monospace' }}>
+                    Rp {fmt(flipBalance.balance || 0)}
+                  </div>
+                ) : (
+                  <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>—</div>
+                )}
+              </div>
+              {flipBalance?.account_name && (
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 2 }}>Akun</div>
+                  <div style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-primary)' }}>{flipBalance.account_name}</div>
+                </div>
+              )}
+            </div>
+
+            <div style={styles.field}>
+              <label style={styles.label}>Nominal Top Up</label>
+              <div style={styles.amountInputWrap}>
+                <span style={styles.amountPrefix}>Rp</span>
+                <input
+                  type="number"
+                  min="10000"
+                  step="1000"
+                  value={amount}
+                  onChange={e => setAmount(Number(e.target.value))}
+                  style={styles.amountInput}
+                  id="topup-amount"
+                />
+              </div>
+              {/* Quick amount buttons */}
+              <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+                {[50000, 100000, 200000, 300000, 500000].map(v => (
+                  <button key={v} onClick={() => setAmount(v)} style={{ ...styles.quickBtn, ...(amount === v ? styles.quickBtnActive : {}) }}>
+                    {fmt(v)}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div style={styles.field}>
+              <label style={styles.label}>Bank Pengirim</label>
+              <BankSearchSelect
+                value={senderBank}
+                onChange={setSenderBank}
+                options={BANK_OPTIONS}
+              />
+            </div>
+
+            <button
+              onClick={handleCreateTopup}
+              disabled={loading || amount < 10000}
+              style={{ ...styles.primaryBtn, ...(loading ? { opacity: 0.7 } : {}) }}
+              id="topup-submit"
+            >
+              {loading ? <><Loader2 size={14} className="spin" /> Memproses...</> : 'Buat Top Up'}
+            </button>
+          </div>
+        )}
+
+        {/* Step: Transferring — show bank details */}
+        {step === 'transferring' && topupData && (
+          <div style={styles.body}>
+            <div style={styles.successBanner}>
+              ✅ Top up berhasil dibuat! Transfer sesuai detail berikut:
+            </div>
+
+            <div style={styles.detailCard}>
+              <DetailRow label="Bank Tujuan" value={receiverBank?.bank?.toUpperCase() || '-'} />
+              <DetailRow
+                label="No. Rekening"
+                value={receiverBank?.account_number || '-'}
+                copiable
+                onCopy={() => copyText(receiverBank?.account_number, 'rekening')}
+                isCopied={copied === 'rekening'}
+              />
+              <DetailRow label="Atas Nama" value={receiverBank?.name || '-'} />
+              <div style={styles.divider} />
+              <DetailRow label="Nominal" value={`Rp ${fmt(topupData.amount || 0)}`} />
+              <DetailRow label="Kode Unik" value={`+${topupData.unique_code || 0}`} accent />
+              <div style={styles.divider} />
+              <DetailRow
+                label="Total Transfer"
+                value={`Rp ${fmt(totalTransfer)}`}
+                bold
+                copiable
+                onCopy={() => copyText(String(totalTransfer), 'total')}
+                isCopied={copied === 'total'}
+              />
+            </div>
+
+            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: 12, lineHeight: 1.5 }}>
+              ⚠️ Pastikan transfer <strong>tepat Rp {fmt(totalTransfer)}</strong> (termasuk kode unik).
+              Setelah transfer selesai, klik tombol konfirmasi.
+            </div>
+
+            <button onClick={handleConfirm} disabled={loading} style={styles.primaryBtn} id="topup-confirm">
+              {loading ? <><Loader2 size={14} className="spin" /> Mengonfirmasi...</> : '✓ Sudah Transfer — Konfirmasi'}
+            </button>
+          </div>
+        )}
+
+        {/* Step: Polling */}
+        {step === 'polling' && (
+          <div style={styles.body}>
+            <div style={{ textAlign: 'center', padding: '24px 0' }}>
+              <Loader2 size={32} className="spin" style={{ color: '#6366f1', marginBottom: 12 }} />
+              <div style={{ fontWeight: 700, fontSize: '0.95rem', marginBottom: 4 }}>Menunggu Konfirmasi Flip...</div>
+              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                Status: <span style={{ color: '#f59e0b', fontWeight: 700 }}>{topupData?.status || 'PENDING'}</span>
+              </div>
+              <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: 8 }}>Polling otomatis setiap 5 detik...</div>
+            </div>
+          </div>
+        )}
+
+        {/* Step: Done */}
+        {step === 'done' && (
+          <div style={styles.body}>
+            <div style={{ textAlign: 'center', padding: '24px 0' }}>
+              <div style={{ fontSize: '2rem', marginBottom: 8 }}>🎉</div>
+              <div style={{ fontWeight: 700, fontSize: '1rem', color: '#10b981', marginBottom: 4 }}>Top Up Berhasil!</div>
+              <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: 4 }}>
+                Saldo Flip telah bertambah Rp {fmt(topupData?.amount || 0)}
+              </div>
+              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                Status: <span style={{ color: '#10b981', fontWeight: 700 }}>{topupData?.status}</span>
+              </div>
+            </div>
+            <button onClick={onClose} style={styles.primaryBtn}>Tutup</button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function DetailRow({ label, value, bold, accent, copiable, onCopy, isCopied }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0' }}>
+      <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{label}</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span style={{
+          fontWeight: bold ? 800 : accent ? 700 : 600,
+          fontSize: bold ? '1.05rem' : '0.85rem',
+          color: accent ? '#f59e0b' : bold ? '#10b981' : 'var(--text-primary)',
+          fontFamily: 'monospace',
+        }}>{value}</span>
+        {copiable && (
+          <button onClick={onCopy} style={styles.copyBtn} title="Salin">
+            {isCopied ? <Check size={12} style={{ color: '#10b981' }} /> : <Copy size={12} />}
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Modal styles ─────────────────────────────────────────────
+const styles = {
+  overlay: {
+    position: 'fixed', inset: 0, zIndex: 1000,
+    background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    padding: 16,
+  },
+  modal: {
+    background: 'var(--bg-card, #1a1a2e)', borderRadius: 16,
+    borderWidth: 1, borderStyle: 'solid', borderColor: 'var(--border, rgba(255,255,255,0.08))',
+    width: '100%', maxWidth: 440,
+    boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
+    overflow: 'visible',
+  },
+  modalHeader: {
+    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+    padding: '16px 20px',
+    borderBottomWidth: 1, borderBottomStyle: 'solid', borderBottomColor: 'var(--border, rgba(255,255,255,0.08))',
+  },
+  iconCircle: {
+    width: 32, height: 32, borderRadius: '50%',
+    background: 'rgba(99,102,241,0.15)', color: '#6366f1',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+  },
+  closeBtn: {
+    background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer',
+    padding: 4, borderRadius: 6,
+  },
+  body: { padding: '16px 20px 20px' },
+  field: { marginBottom: 16 },
+  label: { display: 'block', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.03em' },
+  amountInputWrap: {
+    display: 'flex', alignItems: 'center', gap: 0,
+    borderWidth: 1, borderStyle: 'solid', borderColor: 'var(--border, rgba(255,255,255,0.1))',
+    borderRadius: 10, overflow: 'hidden',
+    background: 'var(--bg-input, rgba(255,255,255,0.04))',
+  },
+  amountPrefix: {
+    padding: '10px 12px', fontSize: '0.88rem', fontWeight: 700,
+    color: 'var(--text-muted)', background: 'rgba(255,255,255,0.02)',
+    borderRightWidth: 1, borderRightStyle: 'solid', borderRightColor: 'var(--border, rgba(255,255,255,0.08))',
+  },
+  amountInput: {
+    flex: 1, padding: '10px 12px', borderWidth: 0, outline: 'none',
+    background: 'transparent', color: 'var(--text-primary)',
+    fontSize: '1.1rem', fontWeight: 700, fontFamily: 'monospace',
+  },
+  quickBtn: {
+    padding: '4px 10px', borderRadius: 8,
+    borderWidth: 1, borderStyle: 'solid', borderColor: 'var(--border, rgba(255,255,255,0.1))',
+    background: 'transparent', color: 'var(--text-muted)', fontSize: '0.72rem',
+    cursor: 'pointer', fontWeight: 600, transition: 'all 0.15s',
+  },
+  quickBtnActive: {
+    background: 'rgba(99,102,241,0.15)', borderColor: '#6366f1', color: '#6366f1',
+  },
+  select: {
+    width: '100%', padding: '10px 12px', borderRadius: 10,
+    borderWidth: 1, borderStyle: 'solid', borderColor: 'var(--border, rgba(255,255,255,0.1))',
+    background: 'var(--bg-input, rgba(255,255,255,0.04))',
+    color: 'var(--text-primary)', fontSize: '0.88rem', outline: 'none',
+  },
+  primaryBtn: {
+    width: '100%', padding: '12px', borderRadius: 10,
+    borderWidth: 0, borderStyle: 'none', borderColor: 'transparent',
+    background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', color: '#fff',
+    fontWeight: 700, fontSize: '0.88rem', cursor: 'pointer',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+    transition: 'all 0.2s',
+  },
+  errorBox: {
+    margin: '0 20px', padding: '10px 14px', borderRadius: 10,
+    background: 'rgba(239,68,68,0.1)',
+    borderWidth: 1, borderStyle: 'solid', borderColor: 'rgba(239,68,68,0.2)',
+    color: '#ef4444', fontSize: '0.78rem', fontWeight: 600,
+    display: 'flex', alignItems: 'center', gap: 6,
+  },
+  successBanner: {
+    padding: '10px 14px', borderRadius: 10, marginBottom: 16,
+    background: 'rgba(16,185,129,0.1)',
+    borderWidth: 1, borderStyle: 'solid', borderColor: 'rgba(16,185,129,0.2)',
+    color: '#10b981', fontSize: '0.78rem', fontWeight: 600,
+  },
+  detailCard: {
+    padding: '12px 16px', borderRadius: 12, marginBottom: 16,
+    background: 'rgba(255,255,255,0.03)',
+    borderWidth: 1, borderStyle: 'solid', borderColor: 'var(--border, rgba(255,255,255,0.08))',
+  },
+  divider: {
+    height: 1, background: 'var(--border, rgba(255,255,255,0.08))', margin: '4px 0',
+  },
+  copyBtn: {
+    background: 'rgba(255,255,255,0.05)',
+    borderWidth: 1, borderStyle: 'solid', borderColor: 'var(--border, rgba(255,255,255,0.1))',
+    borderRadius: 6, padding: 4, cursor: 'pointer', color: 'var(--text-muted)',
+    display: 'flex', alignItems: 'center',
+  },
+}
+
+// ── Main Page ────────────────────────────────────────────────
 export default function AdminLedgerPage() {
   const [entries, setEntries] = useState([])
   const [total, setTotal] = useState(0)
@@ -68,6 +567,7 @@ export default function AdminLedgerPage() {
   const [statsLoading, setStatsLoading] = useState(true)
   const [merchantBalances, setMerchantBalances] = useState(null)
   const [mbLoading, setMbLoading] = useState(true)
+  const [showTopup, setShowTopup] = useState(false)
   const PER_PAGE = 20
 
   const loadStats = useCallback(async () => {
@@ -137,7 +637,26 @@ export default function AdminLedgerPage() {
               <AlertTriangle size={14} />
               Merchant Siap Tarik — Rp {fmt(merchantBalances.total_needed)}
             </div>
-            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>(saldo ≥ Rp 52.500)</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>(saldo ≥ Rp 52.500)</span>
+              <button
+                onClick={() => setShowTopup(true)}
+                id="topup-flip-btn"
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 5,
+                  padding: '5px 12px', borderRadius: 8,
+                  borderWidth: 1, borderStyle: 'solid', borderColor: 'rgba(99,102,241,0.3)',
+                  background: 'rgba(99,102,241,0.12)',
+                  color: '#818cf8', fontSize: '0.72rem', fontWeight: 700,
+                  cursor: 'pointer', transition: 'all 0.2s',
+                  textTransform: 'uppercase', letterSpacing: '0.03em',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(99,102,241,0.25)'; e.currentTarget.style.borderColor = '#6366f1' }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'rgba(99,102,241,0.12)'; e.currentTarget.style.borderColor = 'rgba(99,102,241,0.3)' }}
+              >
+                <Plus size={12} /> Add Funds
+              </button>
+            </div>
           </div>
           <AdminTable
             columns={[
@@ -174,6 +693,14 @@ export default function AdminLedgerPage() {
           />
         </div>
       )}
+
+      {/* Top-up Modal */}
+      <TopupFlipModal
+        open={showTopup}
+        onClose={() => setShowTopup(false)}
+        defaultAmount={merchantBalances?.total_needed || 50000}
+        onSuccess={() => { loadStats(); loadMerchantBalances() }}
+      />
 
       {/* Filters */}
       <div className="admin-filter-bar">

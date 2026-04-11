@@ -757,6 +757,10 @@ tbody tr.row-cancelled:hover {
   }
 }
 
+.spin {
+  animation: spin 0.8s linear infinite;
+}
+
 /* ── Empty State ─────────────────────────────────────── */
 .empty-state {
   text-align: center;

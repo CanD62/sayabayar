@@ -19,6 +19,10 @@ import {
   executeTransfer,
   getBankList        as getBankListHttp,
   checkAccount       as checkAccountHttp,
+  getPaymentMethods  as getPaymentMethodsHttp,
+  confirmTopup       as confirmTopupHttp,
+  getTopupStatus     as getTopupStatusHttp,
+  getCoinBalance     as getCoinBalanceHttp,
   FLIP_URLS,
   CUST_HOST,
 } from '@payment-gateway/shared/flip'
@@ -418,5 +422,50 @@ export function createPaymentProviderService(db, redis, { inputPin, activateAlaf
     ensureAlaflipActive,
     transfer,
     topup,
+
+    /**
+     * GET daftar metode pembayaran + fee untuk top-up.
+     * Dari HAR topup_saldo_flip.har.
+     *
+     * @param {number} amount - Nominal top-up
+     */
+    async getPaymentMethods(amount) {
+      const token = await getToken()
+      return getPaymentMethodsHttp(amount, token)
+    },
+
+    /**
+     * PUT konfirmasi top-up setelah user transfer dari bank.
+     * Dari HAR topup_saldo_flip.har.
+     *
+     * @param {string} topupId        - ID top-up (misal '808682512')
+     * @param {string} idempotencyKey - Idempotency key
+     */
+    async confirmTopup(topupId, idempotencyKey) {
+      const token = await getToken()
+      return confirmTopupHttp(topupId, token, idempotencyKey)
+    },
+
+    /**
+     * GET status top-up (polling): NOT_CONFIRMED → PENDING → PROCESSED → DONE.
+     * Dari HAR topup_saldo_flip.har.
+     *
+     * @param {string} topupId - ID top-up
+     */
+    async getTopupStatus(topupId) {
+      const token = await getToken()
+      return getTopupStatusHttp(topupId, token)
+    },
+
+    /**
+     * GET saldo Flip Coin.
+     * Dari HAR topup_saldo_flip.har.
+     *
+     * @returns {number} amount (misal 8806)
+     */
+    async getCoinBalance() {
+      const token = await getToken()
+      return getCoinBalanceHttp(token)
+    },
   }
 }

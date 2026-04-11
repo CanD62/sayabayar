@@ -27,6 +27,12 @@ export const FLIP_URLS = {
   chargeChallenge:'https://customer.flip.id/alaflip/api/v1/payments/charge/challenge',
   transfer:       'https://flip.id/api/v2/forward-transfers',
   topup:          'https://flip.id/api/v2/e-money/me/topup',
+  topupStatus:    'https://flip.id/api/v2/top-up-wallet-transfers',              // + /{id}
+  topupConfirm:   'https://flip.id/api/v2/top-up-wallet-transfers',              // + /{id}/confirm
+
+  // Payment methods & saldo
+  paymentMethods: 'https://flip.id/api/v2/transactions/payment-methods',
+  coinBalance:    'https://customer.flip.id/coin/v1/balance',
 }
 
 const API_KEY      = 'EDdwAw954mv4VyjpXLXZ5pRehJNXNmhsqdMbPFyaDq28aAhz'
@@ -247,4 +253,69 @@ export async function checkAccount(accountNumber, bank, token) {
     body:    JSON.stringify({ account_number: accountNumber, bank: bank.toLowerCase() })
   })
   return parseResponse(res)
+}
+
+// ── Top-up wallet ─────────────────────────────────────────────
+/**
+ * GET /api/v2/transactions/payment-methods
+ * Daftar metode pembayaran + fee untuk top-up saldo.
+ * Verified dari HAR topup_saldo_flip.har.
+ *
+ * @param {number} amount     - Nominal top-up (misal 50000)
+ * @param {string} productType - 'balance' (default)
+ */
+export async function getPaymentMethods(amount, token, productType = 'balance') {
+  const url = `${FLIP_URLS.paymentMethods}?service_type=&product-type=${productType}&amount=${amount}`
+  const res = await fetch(url, {
+    method: 'GET',
+    headers: flipHeaders(token),
+  })
+  return parseResponse(res)
+}
+
+/**
+ * PUT /api/v2/top-up-wallet-transfers/{topupId}/confirm
+ * Konfirmasi top-up setelah transfer bank dilakukan.
+ * Verified dari HAR topup_saldo_flip.har.
+ *
+ * @param {string} topupId        - ID top-up (misal '808682512')
+ * @param {string} idempotencyKey - Idempotency key
+ */
+export async function confirmTopup(topupId, token, idempotencyKey) {
+  const res = await fetch(`${FLIP_URLS.topupConfirm}/${topupId}/confirm`, {
+    method:  'PUT',
+    headers: flipHeaders(token, 'application/x-www-form-urlencoded', {
+      'idempotency-key': idempotencyKey,
+    }),
+  })
+  return parseResponse(res)
+}
+
+/**
+ * GET /api/v2/top-up-wallet-transfers/{topupId}
+ * Polling status top-up: NOT_CONFIRMED → PENDING → PROCESSED → DONE.
+ * Verified dari HAR topup_saldo_flip.har.
+ *
+ * @param {string} topupId - ID top-up (misal '808682512')
+ */
+export async function getTopupStatus(topupId, token) {
+  const res = await fetch(`${FLIP_URLS.topupStatus}/${topupId}`, {
+    method: 'GET',
+    headers: flipHeaders(token),
+  })
+  return parseResponse(res)
+}
+
+/**
+ * GET /coin/v1/balance
+ * Cek saldo Flip Coin (berbeda dari saldo Alaflip/superflip).
+ * Verified dari HAR topup_saldo_flip.har.
+ */
+export async function getCoinBalance(token) {
+  const res = await fetch(FLIP_URLS.coinBalance, {
+    method: 'GET',
+    headers: custHeaders(token),
+  })
+  const body = await parseResponse(res)
+  return body?.data?.amount
 }
