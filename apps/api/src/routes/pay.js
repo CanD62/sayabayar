@@ -231,6 +231,7 @@ export async function payRoutes(fastify) {
       amount_to_pay: Number(invoice.amountUnique),
       unique_code: invoice.uniqueCode,
       status: invoice.status,
+      redirect_url: invoice.redirectUrl || null,
       expired_at: invoice.expiredAt,
       payment_channel: null,
       available_channels: []

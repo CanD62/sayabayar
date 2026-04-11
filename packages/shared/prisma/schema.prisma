@@ -213,6 +213,7 @@ model Invoice {
   fee               Decimal       @default(0) @db.Decimal(15, 2)           // platform channel fee
   confirmedAt       DateTime?     @map("confirmed_at")  // user clicked "Sudah Transfer"
   channelPreference String        @default("platform") @map("channel_preference") @db.VarChar(20)
+  redirectUrl       String?       @map("redirect_url") @db.VarChar(500)
   createdAt         DateTime      @default(now()) @map("created_at")
 
   client         Client          @relation(fields: [clientId], references: [id])

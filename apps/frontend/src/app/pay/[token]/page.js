@@ -267,6 +267,110 @@ function OwnerDisclaimer({ channelOwner }) {
 
 // ─── Main Page ──────────────────────────────────────────────────────────────
 
+const REDIRECT_SECONDS = 5
+
+function PaidScreen({ invoice }) {
+  const isSub = invoice?.invoice_number?.startsWith('SUB-')
+  const redirectUrl = invoice?.redirect_url
+  const [countdown, setCountdown] = useState(REDIRECT_SECONDS)
+  const [redirecting, setRedirecting] = useState(false)
+
+  const buildRedirectUrl = useCallback(() => {
+    if (!redirectUrl) return null
+    try {
+      const url = new URL(redirectUrl)
+      url.searchParams.set('invoice_number', invoice.invoice_number || '')
+      url.searchParams.set('status', 'paid')
+      url.searchParams.set('amount', String(invoice.amount || 0))
+      return url.toString()
+    } catch {
+      // Invalid URL — append as query string manually
+      const sep = redirectUrl.includes('?') ? '&' : '?'
+      return `${redirectUrl}${sep}invoice_number=${encodeURIComponent(invoice.invoice_number || '')}&status=paid&amount=${invoice.amount || 0}`
+    }
+  }, [redirectUrl, invoice])
+
+  const handleRedirect = useCallback(() => {
+    const url = buildRedirectUrl()
+    if (url) {
+      setRedirecting(true)
+      window.location.href = url
+    }
+  }, [buildRedirectUrl])
+
+  useEffect(() => {
+    if (!redirectUrl || isSub) return
+    if (countdown <= 0) {
+      handleRedirect()
+      return
+    }
+    const timer = setTimeout(() => setCountdown(c => c - 1), 1000)
+    return () => clearTimeout(timer)
+  }, [countdown, redirectUrl, isSub, handleRedirect])
+
+  // Extract merchant hostname for display
+  let merchantHost = ''
+  try {
+    merchantHost = new URL(redirectUrl).hostname
+  } catch {}
+
+  return (
+    <div className="pay2-bg">
+      <div className="pay2-shell">
+        <Logo />
+        <div className="pay2-state-screen success">
+          <div className="pay2-success-ring">
+            <div className="pay2-state-icon success">✓</div>
+          </div>
+          <div className="pay2-state-title success">Pembayaran Berhasil!</div>
+          <div className="pay2-state-desc">
+            {isSub ? 'Langganan Anda kini aktif.' : 'Terima kasih telah melakukan pembayaran.'}
+          </div>
+          <div className="pay2-receipt">
+            <InfoRow label="Invoice" value={invoice.invoice_number} mono />
+            <InfoRow label="Jumlah" value={`Rp ${fmt(invoice.amount)}`} highlight />
+          </div>
+
+          {/* Subscription → billing page */}
+          {isSub && (
+            <button className="pay2-cta" onClick={() => window.location.href = '/dashboard/billing'}>
+              ← Ke Halaman Billing
+            </button>
+          )}
+
+          {/* Redirect countdown — only when redirect_url is set and not subscription */}
+          {redirectUrl && !isSub && (
+            <div className="pay2-redirect-section">
+              <div className="pay2-redirect-info">
+                <span className="pay2-redirect-icon">🔄</span>
+                <span>
+                  {redirecting
+                    ? 'Mengalihkan...'
+                    : <>Anda akan dialihkan ke <strong>{invoice.merchant_name || merchantHost}</strong> dalam <strong>{countdown}</strong> detik</>
+                  }
+                </span>
+              </div>
+              <div className="pay2-redirect-bar">
+                <div
+                  className="pay2-redirect-progress"
+                  style={{ width: `${((REDIRECT_SECONDS - countdown) / REDIRECT_SECONDS) * 100}%` }}
+                />
+              </div>
+              <button className="pay2-cta" onClick={handleRedirect} disabled={redirecting}>
+                {redirecting
+                  ? <><div className="pay2-mini-spin white" />Mengalihkan…</>
+                  : `← Kembali ke ${invoice.merchant_name || 'Merchant'}`
+                }
+              </button>
+            </div>
+          )}
+        </div>
+        <div className="pay2-powered">Powered by SayaBayar</div>
+      </div>
+    </div>
+  )
+}
+
 export default function PayPage() {
   const params = useParams()
   const [invoice, setInvoice] = useState(null)
@@ -453,33 +557,7 @@ export default function PayPage() {
 
   // ── PAID ───────────────────────────────────────────────────────────────
   if (status === 'paid') {
-    const isSub = invoice?.invoice_number?.startsWith('SUB-')
-    return (
-      <div className="pay2-bg">
-        <div className="pay2-shell">
-          <Logo />
-          <div className="pay2-state-screen success">
-            <div className="pay2-success-ring">
-              <div className="pay2-state-icon success">✓</div>
-            </div>
-            <div className="pay2-state-title success">Pembayaran Berhasil!</div>
-            <div className="pay2-state-desc">
-              {isSub ? 'Langganan Anda kini aktif.' : 'Terima kasih telah melakukan pembayaran.'}
-            </div>
-            <div className="pay2-receipt">
-              <InfoRow label="Invoice" value={invoice.invoice_number} mono />
-              <InfoRow label="Jumlah" value={`Rp ${fmt(invoice.amount)}`} highlight />
-            </div>
-            {isSub && (
-              <button className="pay2-cta" onClick={() => window.location.href = '/dashboard/billing'}>
-                ← Ke Halaman Billing
-              </button>
-            )}
-          </div>
-          <div className="pay2-powered">Powered by SayaBayar</div>
-        </div>
-      </div>
-    )
+    return <PaidScreen invoice={invoice} />
   }
 
   // ── EXPIRED / CANCELLED ────────────────────────────────────────────────

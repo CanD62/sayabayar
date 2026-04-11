@@ -1725,6 +1725,68 @@ tbody tr.row-cancelled:hover {
   width: 100%;
 }
 
+/* Redirect Section (after payment success) */
+.pay2-redirect-section {
+  width: 100%;
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  animation: fadeInUp 0.5s ease 0.3s both;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.pay2-redirect-info {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 12px;
+  background: rgba(99, 102, 241, 0.08);
+  border: 1px solid rgba(99, 102, 241, 0.18);
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.6);
+  text-align: center;
+  line-height: 1.5;
+}
+
+.pay2-redirect-info strong {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.pay2-redirect-icon {
+  font-size: 1rem;
+  flex-shrink: 0;
+  animation: spin 2s linear infinite;
+}
+
+.pay2-redirect-bar {
+  width: 100%;
+  height: 4px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.pay2-redirect-progress {
+  height: 100%;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #6366f1, #10b981);
+  transition: width 1s linear;
+  box-shadow: 0 0 8px rgba(99, 102, 241, 0.4);
+}
 /* Pulse loading */
 .pay2-pulse-wrap {
   display: flex;

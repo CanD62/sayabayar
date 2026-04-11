@@ -27,6 +27,7 @@ const res = await fetch(\`\${BASE}/invoices\`, {
     amount:             150000,
     description:        'Pembelian produk X',
     channel_preference: 'platform', // 'client' = dana langsung ke rekening Anda
+    redirect_url:       'https://toko-anda.com/order/success', // opsional — redirect setelah bayar
   })
 })
 const invoice = await res.json()
@@ -86,6 +87,7 @@ $invoice = apiFetch("$base/invoices", $api_key, [
         'amount'             => 150000,
         'description'        => 'Pembelian produk X',
         'channel_preference' => 'platform', // 'client' = dana langsung ke rekening Anda
+        'redirect_url'       => 'https://toko-anda.com/order/success', // opsional
     ])
 ]);
 echo "URL: " . $invoice['data']['payment_url'] . "\\n";
@@ -118,6 +120,7 @@ invoice = requests.post(f'{BASE}/invoices', headers=AUTH, json={
     'amount':             150000,
     'description':        'Pembelian produk X',
     'channel_preference': 'platform',  # 'client' = dana langsung ke rekening Anda
+    'redirect_url':       'https://toko-anda.com/order/success',  # opsional
 }).json()
 print('URL:', invoice['data']['payment_url'])
 
@@ -152,7 +155,8 @@ curl -X POST "$BASE/invoices" \\
     "customer_email":     "budi@example.com",
     "amount":             150000,
     "description":        "Pembelian produk X",
-    "channel_preference": "platform"
+    "channel_preference": "platform",
+    "redirect_url":       "https://toko-anda.com/order/success"
   }'
 
 # ── List invoice (filter status + halaman)
@@ -188,6 +192,7 @@ const RESPONSE_EXAMPLES = {
     "amount_unique":  150000,
     "unique_code":    0,
     "payment_url":    "https://sayabayar.com/pay/INV-20240327-0042",
+    "redirect_url":   "https://toko-anda.com/order/success",
     "status":         "pending",
     "expired_at":     "2026-03-27T05:00:00.000+07:00",
     "created_at":     "2026-03-27T04:00:00.000+07:00"
@@ -246,6 +251,7 @@ const RESPONSE_EXAMPLES = {
     "status":         "paid",
     "source":         "api",
     "payment_url":    "https://sayabayar.com/pay/INV-20240327-0042",
+    "redirect_url":   "https://toko-anda.com/order/success",
     "payment_channel": {
       "id":             "ch_bca_01",
       "channel_type":   "BCA",
@@ -484,7 +490,7 @@ function UsageGuide() {
           <StepHeading n={4} title="Referensi Endpoint" />
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
             {[
-              { method: 'POST', path: '/v1/invoices', desc: 'Buat invoice baru' },
+              { method: 'POST', path: '/v1/invoices', desc: 'Buat invoice baru (+ redirect_url opsional)' },
               { method: 'GET', path: '/v1/invoices', desc: 'List semua invoice (query: status, page)' },
               { method: 'GET', path: '/v1/invoices/:id', desc: 'Detail & status invoice' },
               { method: 'GET', path: '/v1/webhooks', desc: 'List webhook endpoint' },

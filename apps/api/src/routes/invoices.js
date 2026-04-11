@@ -113,12 +113,13 @@ export async function invoiceRoutes(fastify) {
           description:        { type: 'string' },
           customer_name:      { type: 'string', maxLength: 200 },
           customer_email:     { type: 'string', format: 'email' },
-          expired_minutes:    { type: 'integer', minimum: 60, maximum: 10080, default: 1440 }  // link validity: default 24h, max 7 days
+          expired_minutes:    { type: 'integer', minimum: 60, maximum: 10080, default: 1440 },  // link validity: default 24h, max 7 days
+          redirect_url:       { type: 'string', format: 'uri', maxLength: 500 }  // redirect customer after payment success
         }
       }
     }
   }, async (request, reply) => {
-    const { channel_preference = 'platform', amount, description, customer_name, customer_email, expired_minutes = 1440 } = request.body
+    const { channel_preference = 'platform', amount, description, customer_name, customer_email, expired_minutes = 1440, redirect_url } = request.body
 
     // ── Guard: platform channel invoice amount limit ──────────────
     // Siapapun yang pakai channel platform (free maupun Pro backup) dibatasi Rp 490.000 per invoice.
@@ -211,6 +212,7 @@ export async function invoiceRoutes(fastify) {
       description,
       source: request.authMethod === 'api_key' ? 'api' : 'dashboard',
       channelPreference: channel_preference,
+      redirectUrl: redirect_url || null,
       paymentUrl,
       paymentToken,
       expiredAt
@@ -223,6 +225,7 @@ export async function invoiceRoutes(fastify) {
       amount_unique: Number(invoice.amountUnique),
       unique_code: invoice.uniqueCode,
       payment_url: invoice.paymentUrl,
+      redirect_url: invoice.redirectUrl || null,
       status: invoice.status,
       expired_at: invoice.expiredAt,
       created_at: invoice.createdAt
@@ -351,6 +354,7 @@ export async function invoiceRoutes(fastify) {
       status: invoice.status,
       source: invoice.source,
       payment_url: invoice.paymentUrl,
+      redirect_url: invoice.redirectUrl || null,
       payment_channel: invoice.paymentChannel ? {
         id: invoice.paymentChannel.id,
         channel_type: invoice.paymentChannel.channelType,

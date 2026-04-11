@@ -39,7 +39,7 @@ export default function InvoicesPage() {
   const [shareTarget, setShareTarget] = useState(null)
   const [detailData, setDetailData] = useState(null)
   const [detailLoading, setDetailLoading] = useState(false)
-  const [form, setForm] = useState({ amount: '', description: '', customer_name: '', customer_email: '', channel_preference: 'platform' })
+  const [form, setForm] = useState({ amount: '', description: '', customer_name: '', customer_email: '', channel_preference: 'platform', redirect_url: '' })
   const [errors, setErrors] = useState({})
   const [stats, setStats] = useState(null)
   const [filterStatus, setFilterStatus] = useState('')
@@ -122,6 +122,7 @@ export default function InvoicesPage() {
         description: form.description || undefined,
         customer_name: form.customer_name || undefined,
         customer_email: form.customer_email || undefined,
+        redirect_url: form.redirect_url || undefined,
       })
       setShowCreate(false)
       setErrors({})
@@ -185,7 +186,7 @@ export default function InvoicesPage() {
         </div>
         <button className="btn btn-primary" onClick={() => {
           const defaultPref = canAddOwnChannel && hasOwnChannel ? 'client' : 'platform'
-          setForm({ amount: '', description: '', customer_name: '', customer_email: '', channel_preference: defaultPref })
+          setForm({ amount: '', description: '', customer_name: '', customer_email: '', channel_preference: defaultPref, redirect_url: '' })
           setErrors({})
           setShowCreate(true)
         }}>
@@ -323,7 +324,7 @@ export default function InvoicesPage() {
             {!search && (
               <button className="btn btn-primary" style={{ marginTop: 4 }} onClick={() => {
                 const defaultPref = canAddOwnChannel && hasOwnChannel ? 'client' : 'platform'
-                setForm({ amount: '', description: '', customer_name: '', customer_email: '', channel_preference: defaultPref })
+                setForm({ amount: '', description: '', customer_name: '', customer_email: '', channel_preference: defaultPref, redirect_url: '' })
                 setErrors({})
                 setShowCreate(true)
               }}>
@@ -543,6 +544,16 @@ export default function InvoicesPage() {
                 <input type="text" className="form-input" placeholder="Pembayaran untuk..." value={form.description}
                   onChange={e => setForm({ ...form, description: e.target.value })} />
               </div>
+              <div className="form-group">
+                <label className="form-label">Redirect URL <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>(opsional)</span></label>
+                <input type="url" className="form-input" placeholder="https://toko-anda.com/order/success" value={form.redirect_url}
+                  onChange={e => { setForm({ ...form, redirect_url: e.target.value }); setErrors({ ...errors, redirect_url: null }) }} />
+                {errors.redirect_url && <span className="form-error">{errors.redirect_url}</span>}
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <span style={{ opacity: 0.7 }}>🔗</span>
+                  Customer akan dialihkan ke URL ini setelah pembayaran berhasil
+                </div>
+              </div>
               {errors.submit && <div className="form-error-box">{errors.submit}</div>}
               <div className="modal-actions">
                 <button type="button" className="btn btn-ghost" onClick={() => { setShowCreate(false); setErrors({}) }}>Batal</button>
@@ -588,6 +599,7 @@ export default function InvoicesPage() {
                     detailData.customer_name && ['Customer', detailData.customer_name],
                     detailData.customer_email && ['Email', detailData.customer_email],
                     detailData.description && ['Deskripsi', detailData.description],
+                    detailData.redirect_url && ['Redirect URL', <span className="font-mono" style={{ fontSize: '0.72rem', wordBreak: 'break-all' }}>{detailData.redirect_url}</span>],
                     ['Sumber', <span className="badge badge-info" style={{ fontSize: '0.65rem' }}>{detailData.source || '-'}</span>],
                   ].filter(Boolean).map(([label, val], i) => (
                     <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
