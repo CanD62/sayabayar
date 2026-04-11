@@ -5,17 +5,23 @@ import { useRouter, usePathname } from 'next/navigation'
 import Link from 'next/link'
 import {
   LayoutDashboard, Users, Wallet, Receipt,
-  Settings, Building2, LogOut, ShieldCheck
+  Settings, Building2, LogOut, ShieldCheck,
+  ArrowLeftRight, Activity, BookOpen, Send, Crown
 } from 'lucide-react'
 import LogoIcon from '@/components/LogoIcon'
 
 const ADMIN_NAV = [
-  { href: '/admin',              label: 'Dashboard',  icon: LayoutDashboard, exact: true },
-  { href: '/admin/merchants',    label: 'Merchant',   icon: Users },
-  { href: '/admin/withdrawals',  label: 'Withdrawal', icon: Wallet },
-  { href: '/admin/channels',     label: 'Channel',    icon: Building2 },
-  { href: '/admin/invoices',     label: 'Invoice',    icon: Receipt },
-  { href: '/admin/settings',     label: 'Pengaturan', icon: Settings },
+  { href: '/admin',              label: 'Dashboard',    icon: LayoutDashboard, exact: true },
+  { href: '/admin/merchants',    label: 'Merchant',     icon: Users },
+  { href: '/admin/subscriptions',label: 'Langganan',    icon: Crown },
+  { href: '/admin/invoices',     label: 'Invoice',      icon: Receipt },
+  { href: '/admin/transactions', label: 'Transaksi',    icon: ArrowLeftRight },
+  { href: '/admin/withdrawals',  label: 'Withdrawal',   icon: Wallet },
+  { href: '/admin/channels',     label: 'Channel',      icon: Building2 },
+  { href: '/admin/scraping-logs',label: 'Scraping Log',  icon: Activity },
+  { href: '/admin/ledger',       label: 'Ledger',       icon: BookOpen },
+  { href: '/admin/webhook-logs', label: 'Webhook Log',  icon: Send },
+  { href: '/admin/settings',     label: 'Pengaturan',   icon: Settings },
 ]
 
 export default function AdminLayout({ children }) {

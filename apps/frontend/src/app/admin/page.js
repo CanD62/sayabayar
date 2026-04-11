@@ -7,7 +7,7 @@ const fmt = (n) => new Intl.NumberFormat('id-ID').format(Math.round(n))
 
 function StatCard({ icon: Icon, label, value, sub, color = '#10b981', prefix = '' }) {
   return (
-    <div style={{
+    <div className="admin-stat-card" style={{
       background: 'rgba(26,28,36,0.8)',
       border: '1px solid rgba(40,44,54,0.8)',
       borderRadius: 16,
@@ -113,7 +113,7 @@ export default function AdminDashboard() {
       </div>
 
       {/* Stat Grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 16, marginBottom: 24 }}>
+      <div className="admin-stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 16, marginBottom: 24 }}>
         <StatCard icon={Users} label="Total Merchant" value={stats?.merchants.total} sub={`${stats?.merchants.suspended} suspended`} color="#6366f1" />
         <StatCard icon={Receipt} label="Invoice Hari Ini" value={stats?.invoices.today} sub={`Bulan ini: ${fmt(stats?.invoices.this_month || 0)}`} color="#f59e0b" />
         <StatCard icon={TrendingUp} label="Volume Hari Ini" value={stats?.invoices.paid_today_volume} sub={`${fmt(stats?.invoices.paid_today_count || 0)} invoice lunas`} color="#10b981" prefix="Rp " />
@@ -122,13 +122,15 @@ export default function AdminDashboard() {
         <StatCard icon={AlertCircle} label="Withdrawal Pending" value={stats?.withdrawals.pending_count} sub={`Volume bulan: Rp ${fmt(stats?.withdrawals.month_volume || 0)}`} color="#ef4444" />
         <StatCard icon={Building2} label="Channel Aktif" value={stats?.system.active_channels} color="#06b6d4" />
         <StatCard icon={Wallet} label="Saldo Merchant" value={stats?.balances.total_merchant_available} sub={`Pending: Rp ${fmt(stats?.balances.total_merchant_pending || 0)}`} color="#fbbf24" prefix="Rp " />
+        <StatCard icon={TrendingUp} label="Pendapatan Platform" value={stats?.revenue?.unique_code_month} sub="Kode unik bulan ini" color="#f472b6" prefix="Rp " />
+        <StatCard icon={TrendingUp} label="Pendapatan Langganan" value={stats?.revenue?.subscription_month} sub={`${fmt(stats?.revenue?.subscription_count || 0)} merchant bulan ini`} color="#a78bfa" prefix="Rp " />
       </div>
 
       {/* 2-column: chart + pending withdrawals */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+      <div className="admin-dashboard-bottom">
         {/* 7-day volume chart */}
         <div className="card" style={{ padding: 24 }}>
-          <div style={{ fontWeight: 700, marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ fontWeight: 700, marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
             <span>Volume 7 Hari Terakhir</span>
             <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 400 }}>
               Total: Rp {fmt(stats?.chart_7d?.reduce((s, d) => s + d.volume, 0) || 0)}
@@ -146,7 +148,7 @@ export default function AdminDashboard() {
 
         {/* Pending withdrawals */}
         <div className="card" style={{ padding: 24 }}>
-          <div style={{ fontWeight: 700, marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ fontWeight: 700, marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
             <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <AlertCircle size={16} color="#ef4444" /> Withdrawal Perlu Aksi
             </span>
@@ -166,7 +168,7 @@ export default function AdminDashboard() {
                   border: '1px solid rgba(239,68,68,0.15)',
                   fontSize: '0.8rem',
                 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2, flexWrap: 'wrap', gap: 4 }}>
                     <span style={{ fontWeight: 700 }}>Rp {fmt(w.amount_received)}</span>
                     <span style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>
                       <Clock size={10} style={{ display: 'inline', marginRight: 3 }} />

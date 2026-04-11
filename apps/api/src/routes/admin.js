@@ -49,6 +49,9 @@ export async function adminRoutes(fastify) {
       channelCount,
       // 7-day daily paid invoices for mini chart
       dailyPaid,
+      // Revenue: unique_code + langganan dari invoice paid bulan ini
+      revenueUniqueCode,
+      revenueSubscription,
     ] = await Promise.all([
       db.client.count({ where: { id: { not: 'platform-owner-000000000000000' } } }),
       db.client.count({ where: { status: 'active', id: { not: 'platform-owner-000000000000000' } } }),
@@ -68,6 +71,8 @@ export async function adminRoutes(fastify) {
         _sum: { amount: true },
         _count: true,
       }),
+      db.invoice.aggregate({ where: { status: 'paid', paidAt: { gte: thisMonthStart } }, _sum: { uniqueCodeRevenue: true } }),
+      db.invoice.aggregate({ where: { status: 'paid', paidAt: { gte: thisMonthStart }, invoiceNumber: { startsWith: 'SUB-' } }, _sum: { amount: true }, _count: true }),
     ])
 
     // Build 7-day chart data
@@ -110,6 +115,11 @@ export async function adminRoutes(fastify) {
         active_channels: channelCount,
         flip_auto_process: provider?.autoProcess ?? false,
         flip_email: provider?.email || null,
+      },
+      revenue: {
+        unique_code_month: Number(revenueUniqueCode._sum.uniqueCodeRevenue || 0),
+        subscription_month: Number(revenueSubscription._sum.amount || 0),
+        subscription_count: revenueSubscription._count || 0,
       },
       chart_7d: chartData,
     })
@@ -1216,6 +1226,615 @@ export async function adminRoutes(fastify) {
       fastify.log.error('[FlipLogin] Finalize error:', e.message)
       return reply.fail('FLIP_ERROR', e.message, 400)
     }
+  })
+
+  // ══════════════════════════════════════════════════════════
+  // TRANSACTIONS MONITORING
+  // ══════════════════════════════════════════════════════════
+
+  // ── GET /admin/transactions ─────────────────────────────
+  fastify.get('/transactions', {
+    schema: {
+      querystring: {
+        type: 'object',
+        properties: {
+          page: { type: 'integer', minimum: 1, default: 1 },
+          per_page: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
+          match_status: { type: 'string', enum: ['matched', 'unmatched', 'duplicate', 'manual'] },
+          channel_id: { type: 'string' },
+          date_from: { type: 'string' },
+          date_to: { type: 'string' },
+        }
+      }
+    }
+  }, async (request, reply) => {
+    const { page = 1, per_page = 20, match_status, channel_id, date_from, date_to } = request.query
+
+    const where = {
+      ...(match_status && { matchStatus: match_status }),
+      ...(channel_id && { paymentChannelId: channel_id }),
+      ...(date_from || date_to ? {
+        detectedAt: {
+          ...(date_from && { gte: new Date(date_from) }),
+          ...(date_to && { lte: new Date(date_to + 'T23:59:59Z') }),
+        }
+      } : {})
+    }
+
+    const [transactions, total] = await Promise.all([
+      db.transaction.findMany({
+        where,
+        include: {
+          invoice: { select: { id: true, invoiceNumber: true, amount: true, status: true, clientId: true } },
+          paymentChannel: { select: { channelType: true, accountName: true, accountNumber: true } },
+        },
+        orderBy: { detectedAt: 'desc' },
+        skip: (page - 1) * per_page,
+        take: per_page,
+      }),
+      db.transaction.count({ where })
+    ])
+
+    const mapped = transactions.map(t => ({
+      id: t.id,
+      invoice_id: t.invoiceId,
+      invoice_number: t.invoice?.invoiceNumber || null,
+      payment_channel_id: t.paymentChannelId,
+      channel_type: t.paymentChannel?.channelType || null,
+      channel_account: t.paymentChannel?.accountName || null,
+      amount: Number(t.amount),
+      reference_number: t.referenceNumber,
+      match_status: t.matchStatus,
+      match_attempt: t.matchAttempt,
+      last_match_attempt: t.lastMatchAttempt,
+      detected_at: t.detectedAt,
+    }))
+
+    return reply.paginated(mapped, { page, per_page, total, total_pages: Math.ceil(total / per_page) })
+  })
+
+  // ── PATCH /admin/transactions/:id/match ──────────────────
+  // Manual match: admin mencocokkan transaksi ke invoice tertentu
+  fastify.patch('/transactions/:id/match', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['invoice_id'],
+        properties: {
+          invoice_id: { type: 'string' },
+        }
+      }
+    }
+  }, async (request, reply) => {
+    const { id } = request.params
+    const { invoice_id } = request.body
+
+    const [transaction, invoice] = await Promise.all([
+      db.transaction.findUnique({ where: { id } }),
+      db.invoice.findUnique({
+        where: { id: invoice_id },
+        include: { paymentChannel: { select: { channelOwner: true } } }
+      })
+    ])
+
+    if (!transaction) return reply.fail('NOT_FOUND', 'Transaksi tidak ditemukan', 404)
+    if (!invoice) return reply.fail('NOT_FOUND', 'Invoice tidak ditemukan', 404)
+    if (invoice.status === 'paid') return reply.fail('VALIDATION_ERROR', 'Invoice sudah lunas', 422)
+    if (transaction.matchStatus === 'matched') return reply.fail('VALIDATION_ERROR', 'Transaksi sudah ter-match', 422)
+
+    const now = new Date()
+    const settlementDate = new Date(now.getTime() + 2 * 24 * 60 * 60_000)
+    const isOwnChannel = invoice.paymentChannel?.channelOwner === 'client'
+    const isSubscription = invoice.invoiceNumber.startsWith('SUB-')
+
+    const txOps = [
+      db.transaction.update({
+        where: { id },
+        data: { invoiceId: invoice_id, matchStatus: 'matched', matchAttempt: { increment: 1 }, lastMatchAttempt: now }
+      }),
+      db.invoice.update({
+        where: { id: invoice_id },
+        data: { status: 'paid', paidAt: now }
+      })
+    ]
+
+    if (!isSubscription && !isOwnChannel) {
+      txOps.push(
+        db.balanceLedger.create({
+          data: {
+            clientId: invoice.clientId,
+            invoiceId: invoice.id,
+            type: 'credit_pending',
+            amount: Number(invoice.amount),
+            availableAt: settlementDate,
+            note: `Manual match oleh admin — Invoice ${invoice.invoiceNumber}`
+          }
+        }),
+        db.clientBalance.update({
+          where: { clientId: invoice.clientId },
+          data: {
+            balancePending: { increment: Number(invoice.amount) },
+            totalEarned: { increment: Number(invoice.amount) }
+          }
+        })
+      )
+    }
+
+    await db.$transaction(txOps)
+
+    // Publish SSE event + webhook
+    try {
+      await fastify.redis.publish('invoice_events', JSON.stringify({
+        invoice_id: invoice.id,
+        invoice_number: invoice.invoiceNumber,
+        client_id: invoice.clientId,
+        event: 'invoice.paid',
+        amount: Number(invoice.amount),
+        paid_at: now.toISOString()
+      }))
+    } catch { /* redis publish is best-effort */ }
+
+    fastify.log.info(`[Admin] Manual match: transaction ${id} → invoice ${invoice.invoiceNumber}`)
+    return reply.success({ id, invoice_id, invoice_number: invoice.invoiceNumber, message: `Transaksi berhasil dicocokkan ke ${invoice.invoiceNumber}` })
+  })
+
+  // ══════════════════════════════════════════════════════════
+  // SCRAPING LOGS
+  // ══════════════════════════════════════════════════════════
+
+  // ── GET /admin/scraping-logs ─────────────────────────────
+  fastify.get('/scraping-logs', {
+    schema: {
+      querystring: {
+        type: 'object',
+        properties: {
+          page: { type: 'integer', minimum: 1, default: 1 },
+          per_page: { type: 'integer', minimum: 1, maximum: 100, default: 30 },
+          channel_id: { type: 'string' },
+          status: { type: 'string', enum: ['success', 'transient', 'fatal'] },
+          date_from: { type: 'string' },
+          date_to: { type: 'string' },
+        }
+      }
+    }
+  }, async (request, reply) => {
+    const { page = 1, per_page = 30, channel_id, status, date_from, date_to } = request.query
+
+    const where = {
+      ...(channel_id && { channelId: channel_id }),
+      ...(status && { status }),
+      ...(date_from || date_to ? {
+        scrapedAt: {
+          ...(date_from && { gte: new Date(date_from) }),
+          ...(date_to && { lte: new Date(date_to + 'T23:59:59Z') }),
+        }
+      } : {})
+    }
+
+    const [logs, total] = await Promise.all([
+      db.scrapingLog.findMany({
+        where,
+        orderBy: { scrapedAt: 'desc' },
+        skip: (page - 1) * per_page,
+        take: per_page,
+      }),
+      db.scrapingLog.count({ where })
+    ])
+
+    // Enrich with channel info
+    const channelIds = [...new Set(logs.map(l => l.channelId))]
+    const channels = channelIds.length > 0
+      ? await db.paymentChannel.findMany({
+          where: { id: { in: channelIds } },
+          select: { id: true, channelType: true, accountName: true, accountNumber: true }
+        })
+      : []
+    const channelMap = Object.fromEntries(channels.map(c => [c.id, c]))
+
+    const mapped = logs.map(l => {
+      const ch = channelMap[l.channelId]
+      return {
+        id: l.id,
+        channel_id: l.channelId,
+        channel_type: ch?.channelType || null,
+        channel_account: ch?.accountName || null,
+        status: l.status,
+        error_type: l.errorType,
+        error_message: l.errorMessage,
+        tx_found: l.txFound,
+        tx_new: l.txNew,
+        duration_ms: l.durationMs,
+        scraped_at: l.scrapedAt,
+      }
+    })
+
+    return reply.paginated(mapped, { page, per_page, total, total_pages: Math.ceil(total / per_page) })
+  })
+
+  // ══════════════════════════════════════════════════════════
+  // BALANCE LEDGER
+  // ══════════════════════════════════════════════════════════
+
+  // ── GET /admin/ledger ───────────────────────────────────
+  fastify.get('/ledger', {
+    schema: {
+      querystring: {
+        type: 'object',
+        properties: {
+          page: { type: 'integer', minimum: 1, default: 1 },
+          per_page: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
+          client_id: { type: 'string' },
+          type: { type: 'string', enum: ['credit_pending', 'credit_available', 'debit_withdraw'] },
+          date_from: { type: 'string' },
+          date_to: { type: 'string' },
+        }
+      }
+    }
+  }, async (request, reply) => {
+    const { page = 1, per_page = 20, client_id, type, date_from, date_to } = request.query
+
+    const where = {
+      ...(client_id && { clientId: client_id }),
+      ...(type && { type }),
+      ...(date_from || date_to ? {
+        createdAt: {
+          ...(date_from && { gte: new Date(date_from) }),
+          ...(date_to && { lte: new Date(date_to + 'T23:59:59Z') }),
+        }
+      } : {})
+    }
+
+    const [entries, total] = await Promise.all([
+      db.balanceLedger.findMany({
+        where,
+        include: {
+          client: { select: { id: true, name: true, email: true } },
+          invoice: { select: { id: true, invoiceNumber: true } },
+          withdrawal: { select: { id: true, destinationBank: true, destinationAccount: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * per_page,
+        take: per_page,
+      }),
+      db.balanceLedger.count({ where })
+    ])
+
+    const mapped = entries.map(e => ({
+      id: e.id,
+      client_id: e.clientId,
+      client_name: e.client.name,
+      client_email: e.client.email,
+      invoice_id: e.invoiceId,
+      invoice_number: e.invoice?.invoiceNumber || null,
+      withdrawal_id: e.withdrawalId,
+      withdrawal_info: e.withdrawal ? `${e.withdrawal.destinationBank} ${e.withdrawal.destinationAccount}` : null,
+      type: e.type,
+      amount: Number(e.amount),
+      available_at: e.availableAt,
+      settled_at: e.settledAt,
+      note: e.note,
+      created_at: e.createdAt,
+    }))
+
+    return reply.paginated(mapped, { page, per_page, total, total_pages: Math.ceil(total / per_page) })
+  })
+
+  // ══════════════════════════════════════════════════════════
+  // WEBHOOK LOGS
+  // ══════════════════════════════════════════════════════════
+
+  // ── GET /admin/webhook-logs ─────────────────────────────
+  fastify.get('/webhook-logs', {
+    schema: {
+      querystring: {
+        type: 'object',
+        properties: {
+          page: { type: 'integer', minimum: 1, default: 1 },
+          per_page: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
+          success: { type: 'string', enum: ['true', 'false'] },
+          date_from: { type: 'string' },
+          date_to: { type: 'string' },
+        }
+      }
+    }
+  }, async (request, reply) => {
+    const { page = 1, per_page = 20, success, date_from, date_to } = request.query
+
+    const where = {
+      ...(success === 'true' && { httpStatus: { gte: 200, lt: 300 } }),
+      ...(success === 'false' && { OR: [{ httpStatus: { lt: 200 } }, { httpStatus: { gte: 300 } }, { httpStatus: null }] }),
+      ...(date_from || date_to ? {
+        sentAt: {
+          ...(date_from && { gte: new Date(date_from) }),
+          ...(date_to && { lte: new Date(date_to + 'T23:59:59Z') }),
+        }
+      } : {})
+    }
+
+    const [logs, total] = await Promise.all([
+      db.webhookLog.findMany({
+        where,
+        include: {
+          webhook: { select: { url: true, clientId: true, client: { select: { name: true } } } },
+          invoice: { select: { invoiceNumber: true, amount: true } },
+        },
+        orderBy: { sentAt: 'desc' },
+        skip: (page - 1) * per_page,
+        take: per_page,
+      }),
+      db.webhookLog.count({ where })
+    ])
+
+    const mapped = logs.map(l => ({
+      id: l.id,
+      webhook_url: l.webhook.url,
+      client_name: l.webhook.client?.name || null,
+      invoice_number: l.invoice.invoiceNumber,
+      invoice_amount: Number(l.invoice.amount),
+      http_status: l.httpStatus,
+      attempt_number: l.attemptNumber,
+      response_body: l.responseBody?.slice(0, 200) || null,
+      sent_at: l.sentAt,
+    }))
+
+    return reply.paginated(mapped, { page, per_page, total, total_pages: Math.ceil(total / per_page) })
+  })
+
+  // ══════════════════════════════════════════════════════════
+  // CHANNEL MANAGEMENT
+  // ══════════════════════════════════════════════════════════
+
+  // ── PATCH /admin/channels/:id ───────────────────────────
+  // Toggle active, reset circuit breaker
+  fastify.patch('/channels/:id', {
+    schema: {
+      body: {
+        type: 'object',
+        properties: {
+          is_active: { type: 'boolean' },
+          reset_circuit: { type: 'boolean' },
+        }
+      }
+    }
+  }, async (request, reply) => {
+    const { id } = request.params
+    const { is_active, reset_circuit } = request.body
+
+    const channel = await db.paymentChannel.findUnique({ where: { id }, include: { channelState: true } })
+    if (!channel) return reply.fail('NOT_FOUND', 'Channel tidak ditemukan', 404)
+
+    const ops = []
+    const changes = []
+
+    if (typeof is_active === 'boolean') {
+      ops.push(db.paymentChannel.update({ where: { id }, data: { isActive: is_active } }))
+      changes.push(`is_active → ${is_active}`)
+    }
+
+    if (reset_circuit && channel.channelState) {
+      ops.push(db.channelState.update({
+        where: { channelId: id },
+        data: {
+          circuitState: 'closed',
+          consecutiveErrors: 0,
+          circuitOpenedAt: null,
+          lastErrorAt: null,
+          lastErrorType: null,
+          lastErrorMessage: null,
+        }
+      }))
+      changes.push('circuit → closed')
+    }
+
+    if (ops.length === 0) return reply.fail('VALIDATION_ERROR', 'Tidak ada perubahan', 422)
+
+    await db.$transaction(ops)
+
+    fastify.log.info(`[Admin] Channel ${id}: ${changes.join(', ')}`)
+    return reply.success({ id, changes, message: `Channel diperbarui: ${changes.join(', ')}` })
+  })
+
+  // ══════════════════════════════════════════════════════════
+  // LEDGER STATS & MERCHANT BALANCES
+  // ══════════════════════════════════════════════════════════
+
+  // ── GET /admin/ledger-stats ─────────────────────────────
+  // Aggregate pending vs available balances
+  fastify.get('/ledger-stats', async (request, reply) => {
+    const now = new Date()
+    const [balances, pendingSettlements] = await Promise.all([
+      db.clientBalance.aggregate({
+        _sum: { balancePending: true, balanceAvailable: true, totalEarned: true, totalWithdrawn: true }
+      }),
+      // Count pending credits & total amount waiting settlement
+      db.balanceLedger.aggregate({
+        where: { type: 'credit_pending', settledAt: null },
+        _sum: { amount: true },
+        _count: true,
+      })
+    ])
+
+    return reply.success({
+      total_pending: Number(balances._sum.balancePending || 0),
+      total_available: Number(balances._sum.balanceAvailable || 0),
+      total_earned: Number(balances._sum.totalEarned || 0),
+      total_withdrawn: Number(balances._sum.totalWithdrawn || 0),
+      pending_settlements: pendingSettlements._count || 0,
+      pending_settlements_amount: Number(pendingSettlements._sum.amount || 0),
+    })
+  })
+
+  // ── GET /admin/merchant-balances ────────────────────────
+  // List merchants with available balance >= min_balance
+  fastify.get('/merchant-balances', {
+    schema: {
+      querystring: {
+        type: 'object',
+        properties: {
+          min_balance: { type: 'number', default: 52500 },
+        }
+      }
+    }
+  }, async (request, reply) => {
+    const { min_balance = 52500 } = request.query
+
+    const balances = await db.clientBalance.findMany({
+      where: {
+        balanceAvailable: { gte: min_balance },
+        clientId: { not: 'platform-owner-000000000000000' },
+      },
+      include: {
+        client: { select: { id: true, name: true, email: true, status: true } },
+      },
+      orderBy: { balanceAvailable: 'desc' },
+    })
+
+    const mapped = balances.map(b => ({
+      client_id: b.clientId,
+      client_name: b.client.name,
+      client_email: b.client.email,
+      client_status: b.client.status,
+      balance_available: Number(b.balanceAvailable),
+      balance_pending: Number(b.balancePending),
+      total_earned: Number(b.totalEarned),
+      total_withdrawn: Number(b.totalWithdrawn),
+    }))
+
+    const totalNeeded = mapped.reduce((s, m) => s + m.balance_available, 0)
+
+    return reply.success({
+      merchants: mapped,
+      total_merchants: mapped.length,
+      total_needed: totalNeeded,
+    })
+  })
+
+  // ══════════════════════════════════════════════════════════
+  // SUBSCRIPTION REPORT
+  // ══════════════════════════════════════════════════════════
+
+  // ── GET /admin/subscriptions ────────────────────────────
+  // Subscription overview: active subscribers, monthly revenue, renewal list
+  fastify.get('/subscriptions', {
+    schema: {
+      querystring: {
+        type: 'object',
+        properties: {
+          months: { type: 'integer', minimum: 1, maximum: 12, default: 6 },
+        }
+      }
+    }
+  }, async (request, reply) => {
+    const { months = 6 } = request.query
+    const now = new Date()
+
+    // ── 1. Active subscriptions (paid plan) ──────────────
+    const activeSubscriptions = await db.clientSubscription.findMany({
+      where: {
+        status: 'active',
+        plan: { planType: 'subscription' },
+      },
+      include: {
+        client: { select: { id: true, name: true, email: true, status: true } },
+        plan: { select: { name: true, monthlyPrice: true } },
+      },
+      orderBy: { currentPeriodEnd: 'asc' },
+    })
+
+    const subscribers = activeSubscriptions.map(s => {
+      const daysLeft = Math.ceil((new Date(s.currentPeriodEnd) - now) / (1000 * 60 * 60 * 24))
+      return {
+        client_id: s.clientId,
+        client_name: s.client.name,
+        client_email: s.client.email,
+        client_status: s.client.status,
+        plan_name: s.plan.name,
+        monthly_price: Number(s.plan.monthlyPrice),
+        period_start: s.currentPeriodStart,
+        period_end: s.currentPeriodEnd,
+        days_left: daysLeft,
+        status: daysLeft <= 0 ? 'expired' : daysLeft <= 7 ? 'expiring_soon' : 'active',
+        created_at: s.createdAt,
+      }
+    })
+
+    // ── 2. Monthly revenue from SUB- invoices ────────────
+    const startDate = new Date(now.getFullYear(), now.getMonth() - months + 1, 1)
+
+    const subInvoices = await db.invoice.findMany({
+      where: {
+        invoiceNumber: { startsWith: 'SUB-' },
+        status: 'paid',
+        paidAt: { gte: startDate },
+      },
+      select: {
+        id: true,
+        invoiceNumber: true,
+        amount: true,
+        paidAt: true,
+        clientId: true,
+        client: { select: { name: true, email: true } },
+      },
+      orderBy: { paidAt: 'desc' },
+    })
+
+    // Group by month
+    const monthlyData = {}
+    for (let i = 0; i < months; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+      const key = d.toISOString().slice(0, 7)
+      monthlyData[key] = { month: key, revenue: 0, count: 0, merchants: [] }
+    }
+
+    for (const inv of subInvoices) {
+      const key = inv.paidAt.toISOString().slice(0, 7)
+      if (monthlyData[key]) {
+        monthlyData[key].revenue += Number(inv.amount)
+        monthlyData[key].count += 1
+        if (!monthlyData[key].merchants.find(m => m.client_id === inv.clientId)) {
+          monthlyData[key].merchants.push({
+            client_id: inv.clientId,
+            client_name: inv.client.name,
+            client_email: inv.client.email,
+            amount: Number(inv.amount),
+            paid_at: inv.paidAt,
+            invoice_number: inv.invoiceNumber,
+          })
+        }
+      }
+    }
+
+    const monthlyReport = Object.values(monthlyData).sort((a, b) => b.month.localeCompare(a.month))
+
+    // ── 3. Summary stats ─────────────────────────────────
+    const totalActiveSubscribers = subscribers.filter(s => s.status !== 'expired').length
+    const expiringSoon = subscribers.filter(s => s.status === 'expiring_soon').length
+    const thisMonthKey = now.toISOString().slice(0, 7)
+    const thisMonthRevenue = monthlyData[thisMonthKey]?.revenue || 0
+    const thisMonthCount = monthlyData[thisMonthKey]?.count || 0
+
+    // Renewal rate: merchants who paid last month AND this month
+    const lastMonthKey = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().slice(0, 7)
+    const lastMonthMerchants = new Set((monthlyData[lastMonthKey]?.merchants || []).map(m => m.client_id))
+    const thisMonthMerchants = new Set((monthlyData[thisMonthKey]?.merchants || []).map(m => m.client_id))
+    const renewedCount = [...lastMonthMerchants].filter(id => thisMonthMerchants.has(id)).length
+    const renewalRate = lastMonthMerchants.size > 0
+      ? Math.round((renewedCount / lastMonthMerchants.size) * 100)
+      : 0
+
+    return reply.success({
+      summary: {
+        active_subscribers: totalActiveSubscribers,
+        expiring_soon: expiringSoon,
+        this_month_revenue: thisMonthRevenue,
+        this_month_count: thisMonthCount,
+        renewal_rate: renewalRate,
+        renewed_count: renewedCount,
+        last_month_count: lastMonthMerchants.size,
+      },
+      subscribers,
+      monthly_report: monthlyReport,
+    })
   })
 }
 
