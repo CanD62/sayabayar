@@ -147,7 +147,7 @@ async function selectLeastLoadedQrisChannel(db, channelWhere) {
   const qrisChannels = await db.paymentChannel.findMany({
     where: {
       ...channelWhere,
-      channelType: { in: ['qris_bca', 'qris_gopay'] }
+      channelType: { in: ['qris_bca', 'qris_gopay', 'qris_bri'] }
     },
     include: {
       channelState: {

@@ -38,7 +38,7 @@ if (activeChannels.length > 0) {
     try {
       await db.channelState.updateMany({
         where: { channelId: { in: activeChannels.map(c => c.id) } },
-        data: { nextScrapeAt: new Date(Date.now() + 5_000) }  // 5s buffer — avoids race with scheduler first poll
+        data: { nextScrapeAt: new Date(Date.now() + 5_000) }
       })
       console.log(`🔄 Reset ${activeChannels.length} channel(s) — will scrape in 5s`)
       resetOk = true
@@ -62,22 +62,11 @@ if (activeChannels.length > 0) {
 
   // ── Clear stale BullMQ jobs so scheduler can add fresh ones ──
   // Setelah restart, job lama (active/waiting/delayed) masih ada di Redis.
-  // BullMQ butuh 30-60s untuk detect stalled job — tanpa ini scraper bisa
-  // delay lama sebelum jalan. Hapus semua job lama agar scheduler bebas.
-  let clearedCount = 0
-  for (const ch of activeChannels) {
-    const jobId = `scrape-${ch.id}`
-    try {
-      const job = await scrapeQueue.getJob(jobId)
-      if (job) {
-        await job.remove()
-        clearedCount++
-      }
-    } catch { /* ignore */ }
-  }
-  if (clearedCount > 0) {
-    console.log(`🧹 Cleared ${clearedCount} stale BullMQ job(s) — fresh start`)
-  }
+  // Drain semua waiting/delayed jobs agar scheduler bisa add fresh ones.
+  try {
+    const drained = await scrapeQueue.drain()
+    console.log('🧹 Drained stale BullMQ scrape jobs')
+  } catch {}
 }
 
 // ── Start browser pool cleanup ────────────────────────────

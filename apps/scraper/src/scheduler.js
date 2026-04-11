@@ -44,6 +44,7 @@ export function startScheduler(intervalMs = 5000) {
       for (const ch of inactiveChannels) {
         const cmd = await consumeCommand(ch.id)
         const isGoPay = ch.channelType === 'qris_gopay'
+        const isBri = ch.channelType === 'qris_bri'
 
         if (cmd === 'clean_browser' || cmd === 'force_logout') {
           const label = cmd === 'force_logout' ? '⚠️ Force logout' : '🧹 Clean browser'
@@ -51,8 +52,12 @@ export function startScheduler(intervalMs = 5000) {
 
           if (isGoPay) {
             const { logoutGopay } = await import('./scrapers/qrisGopay.js')
-            await logoutGopay(ch.id).catch(() => {})
+            await logoutGopay(ch.id).catch(() => { })
             console.log(`[Scheduler] ✅ GoPay token cleared: ${ch.accountName}`)
+          } else if (isBri) {
+            const { logoutBri } = await import('./scrapers/qrisBri.js')
+            await logoutBri(ch.id).catch(() => { })
+            console.log(`[Scheduler] ✅ BRI token cleared: ${ch.accountName}`)
           } else if (cmd === 'clean_browser') {
             await browserPool.destroySession(ch.id)
           } else {
@@ -68,14 +73,19 @@ export function startScheduler(intervalMs = 5000) {
         // ── Management commands ──────────────────────────
         const cmd = await consumeCommand(channel.id)
         const isGoPay = channel.channelType === 'qris_gopay'
+        const isBri = channel.channelType === 'qris_bri'
 
         if (cmd === 'force_logout') {
           console.log(`[Scheduler] ⚠️ Force logout: ${channel.accountName}`)
           if (isGoPay) {
             // GoPay: clear Redis token (no browser session)
             const { logoutGopay } = await import('./scrapers/qrisGopay.js')
-            await logoutGopay(channel.id).catch(() => {})
+            await logoutGopay(channel.id).catch(() => { })
             console.log(`[Scheduler] ✅ GoPay token cleared: ${channel.accountName}`)
+          } else if (isBri) {
+            const { logoutBri } = await import('./scrapers/qrisBri.js')
+            await logoutBri(channel.id).catch(() => { })
+            console.log(`[Scheduler] ✅ BRI token cleared: ${channel.accountName}`)
           } else {
             await browserPool.forceLogout(channel.id)
           }
@@ -85,7 +95,10 @@ export function startScheduler(intervalMs = 5000) {
           console.log(`[Scheduler] 🧹 Clean browser: ${channel.accountName}`)
           if (isGoPay) {
             const { logoutGopay } = await import('./scrapers/qrisGopay.js')
-            await logoutGopay(channel.id).catch(() => {})
+            await logoutGopay(channel.id).catch(() => { })
+          } else if (isBri) {
+            const { logoutBri } = await import('./scrapers/qrisBri.js')
+            await logoutBri(channel.id).catch(() => { })
           } else {
             await browserPool.destroySession(channel.id)
           }
@@ -170,15 +183,12 @@ export function startScheduler(intervalMs = 5000) {
         const nextScrapeAt = state?.nextScrapeAt
         if (nextScrapeAt && new Date(nextScrapeAt) > now) continue
 
-        // Check for duplicate jobs in queue
-        const jobId = `scrape-${channel.id}`
-        const existingJob = await scrapeQueue.getJob(jobId)
-        if (existingJob) {
-          const jobState = await existingJob.getState()
-          if (jobState === 'active' || jobState === 'waiting' || jobState === 'delayed') {
-            continue
-          }
-          await existingJob.remove().catch(() => { })
+        // Check if there's already a pending/active job for this channel
+        const waiting = await scrapeQueue.getJobs(['waiting', 'active', 'delayed'])
+        const alreadyQueued = waiting.some(j => j.data?.channelId === channel.id)
+        if (alreadyQueued) {
+          // Skip — prevent duplicate jobs for the same channel
+          continue
         }
 
         // Ensure channel_state exists
@@ -193,14 +203,14 @@ export function startScheduler(intervalMs = 5000) {
         })
 
         // Add scrape job
-        await scrapeQueue.add('scrape', {
+        const job = await scrapeQueue.add('scrape', {
           channelId: channel.id,
           channelType: channel.channelType,
-          priority  // ← agar scrapeWorker tahu scroll perlu atau tidak
+          priority
         }, {
-          jobId,
           priority: priority === 'high' ? 1 : priority === 'medium' ? 5 : 10
         })
+        console.log(`[Scheduler] 📤 Job queued: ${channel.accountName} (${channel.channelType}) id=${job.id}`)
 
         const label = confirmedCount > 0 && !highTimedOut
           ? `⚡ HIGH (${confirmedCount} confirmed, next ${interval / 1000}s)`
@@ -261,7 +271,8 @@ async function handleTestLogin(channel, testId) {
     const scrapers = {
       bca_transfer: () => import('./scrapers/bcaTransfer.js'),
       qris_bca: () => import('./scrapers/qrisBca.js'),
-      qris_gopay: () => import('./scrapers/qrisGopay.js')
+      qris_gopay: () => import('./scrapers/qrisGopay.js'),
+      qris_bri: () => import('./scrapers/qrisBri.js')
     }
 
     const importFn = scrapers[channel.channelType]
@@ -271,8 +282,12 @@ async function handleTestLogin(channel, testId) {
     }
 
     // Create a temporary session for testing (don't use the pool — avoid disrupting ongoing sessions)
+    // API-based scrapers don't need a browser session
     const testChannelId = `test_${channel.id}_${Date.now()}`
-    const session = await browserPool.getSession(testChannelId)
+    const isApiScraper = channel.channelType === 'qris_gopay' || channel.channelType === 'qris_bri'
+    const session = isApiScraper
+      ? { mainPage: null, context: null, isLoggedIn: false }
+      : await browserPool.getSession(testChannelId)
 
     try {
       const scraperModule = await importFn()
@@ -280,9 +295,10 @@ async function handleTestLogin(channel, testId) {
       const scraperFn = scraperModule.scrapeBcaTransfer
         || scraperModule.scrapeQrisBca
         || scraperModule.scrapeQrisGopay
+        || scraperModule.scrapeQrisBri
 
-      // GoPay needs channelId to access Redis token store
-      const scraperConfig = channel.channelType === 'qris_gopay'
+      // API-based scrapers need channelId to access Redis token store
+      const scraperConfig = isApiScraper
         ? { ...config, _channelId: `test_${channel.id}` }
         : config
 
@@ -295,8 +311,10 @@ async function handleTestLogin(channel, testId) {
       await r.setex(resultKey, 60, JSON.stringify({ success: false, message: `Login gagal: ${err.message}` }))
       console.log(`[Scheduler] ❌ Test login FAILED: ${channel.accountName} — ${err.message}`)
     } finally {
-      // Always destroy test session
-      await browserPool.destroySession(testChannelId)
+      // Always destroy test session (skip for API-based — no browser to destroy)
+      if (!isApiScraper) {
+        await browserPool.destroySession(testChannelId)
+      }
     }
   } catch (err) {
     await r.setex(resultKey, 60, JSON.stringify({ success: false, message: `Error: ${err.message}` }))

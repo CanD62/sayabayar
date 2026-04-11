@@ -451,6 +451,7 @@ export default function ChannelsPage() {
                   <option value="bca_transfer">BCA Transfer</option>
                   <option value="qris_bca">QRIS BCA</option>
                   <option value="qris_gopay">QRIS GoPay</option>
+                  <option value="qris_bri">QRIS BRI</option>
                 </select>
               </div>
 
@@ -571,10 +572,10 @@ export default function ChannelsPage() {
               {/* ── Credentials (always shown) ──────────────── */}
               <div className="form-group">
                 <label className="form-label">
-                  {isQrisBca ? 'Email QRIS BCA Merchant' : isQrisGopay ? 'Email GoBiz (GoPay Merchant)' : isQris ? 'Username QRIS Merchant' : 'Username Internet Banking'} *
+                  {isQrisBca ? 'Email QRIS BCA Merchant' : isQrisGopay ? 'Email GoBiz (GoPay Merchant)' : form.channel_type === 'qris_bri' ? 'No. HP BRI Merchant' : isQris ? 'Username QRIS Merchant' : 'Username Internet Banking'} *
                 </label>
                 <input type={isQrisEmail ? 'email' : 'text'} className="form-input" value={form.scraping_config.username}
-                  placeholder={isQrisGopay ? 'email@example.com' : ''}
+                  placeholder={isQrisGopay ? 'email@example.com' : form.channel_type === 'qris_bri' ? '08xxxxxxxxxx' : ''}
                   onChange={e => { setForm({ ...form, scraping_config: { ...form.scraping_config, username: e.target.value } }); setFormError(null) }} required />
               </div>
               <div className="form-group">
@@ -751,7 +752,7 @@ function SyncInfo({ c, restartingIds }) {
   // Belum pernah berhasil scrape ATAU sedang restart → tampilkan animasi sinkronisasi
   // KECUALI: sudah ada transient error (rate-limit dsb) → proses sudah selesai, tampilkan info waktu
   const isRestarting = restartingIds?.has(c.id)
-  const isApiBased = c.channel_type === 'qris_gopay'
+  const isApiBased = c.channel_type === 'qris_gopay' || c.channel_type === 'qris_bri'
   const hasTransientError = c.last_error_type === 'transient'
   // Spinner tampil hanya jika belum ada hasil apapun (first sync) atau sedang restart
   // Jika sudah ada transient error → scraper sudah selesai, langsung tampilkan next_scrape_at
@@ -821,7 +822,7 @@ function ChannelActions({ c, actionLoading, restartingIds, onTest, onToggle, onE
         <Lock size={14} />
       </button>
       */}
-      <button className="btn btn-ghost btn-sm" title="Restart" onClick={() => onRestart(c)} disabled={isSyncing || !c.is_active || actionLoading[c.id] === 'clean' || c.channel_type === 'qris_gopay'}>
+      <button className="btn btn-ghost btn-sm" title="Restart" onClick={() => onRestart(c)} disabled={isSyncing || !c.is_active || actionLoading[c.id] === 'clean' || c.channel_type === 'qris_gopay' || c.channel_type === 'qris_bri'}>
         <RotateCcw size={14} />
       </button>
       <button className="btn btn-ghost btn-sm" title="Edit" onClick={() => onEdit(c)} disabled={isSyncing}>

@@ -13,6 +13,7 @@ const CHANNEL_META = {
   qris: { name: 'QRIS', short: 'QRIS', color: '#00aed6', bg: '#e5f8fd', emoji: '📱' },
   qris_bca: { name: 'QRIS', short: 'QRIS', color: '#003d79', bg: '#e8f0fb', emoji: '📱' },
   qris_gopay: { name: 'QRIS', short: 'QRIS', color: '#00aed6', bg: '#e5f8fd', emoji: '📱' },
+  qris_bri: { name: 'QRIS', short: 'QRIS', color: '#003087', bg: '#e6ecf8', emoji: '📱' },
   mandiri_transfer: { name: 'Mandiri', short: 'Mandiri', color: '#003087', bg: '#e6ecf8', emoji: '🏦' },
   bri_transfer: { name: 'BRI Transfer', short: 'BRI', color: '#003087', bg: '#e6ecf8', emoji: '🏦' },
 }

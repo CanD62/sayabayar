@@ -5,6 +5,10 @@ import { Queue } from 'bullmq'
 
 let connection = null
 
+// Prefix isolates dev/prod queues when sharing the same Redis instance
+const ENV = process.env.NODE_ENV || 'development'
+export const QUEUE_PREFIX = ENV === 'production' ? 'bull' : `bull:${ENV}`
+
 export function getRedisConnection() {
   if (!connection) {
     const url = new URL(process.env.REDIS_URL || 'redis://localhost:6379')
@@ -22,6 +26,7 @@ export function getRedisConnection() {
 // Job: { channelId, channelType, scrapingConfig, priority }
 export const scrapeQueue = new Queue('scrape', {
   connection: getRedisConnection(),
+  prefix: QUEUE_PREFIX,
   defaultJobOptions: {
     removeOnComplete: { count: 100 },
     removeOnFail: { count: 50 },
@@ -35,6 +40,7 @@ export const scrapeQueue = new Queue('scrape', {
 // attempts harus sama dengan MATCH.MAX_ATTEMPTS (5) di constants
 export const matchQueue = new Queue('match', {
   connection: getRedisConnection(),
+  prefix: QUEUE_PREFIX,
   defaultJobOptions: {
     removeOnComplete: { count: 200 },
     removeOnFail: { count: 50 },
@@ -47,6 +53,7 @@ export const matchQueue = new Queue('match', {
 // Job: { invoiceId, event, clientId }
 export const webhookQueue = new Queue('webhook', {
   connection: getRedisConnection(),
+  prefix: QUEUE_PREFIX,
   defaultJobOptions: {
     removeOnComplete: { count: 500 },
     removeOnFail: { count: 100 },
@@ -60,6 +67,7 @@ export const webhookQueue = new Queue('webhook', {
 // concurrency=1 — WAJIB sequential, tidak boleh paralel ke Flip
 export const flipQueue = new Queue('flip', {
   connection: getRedisConnection(),
+  prefix: QUEUE_PREFIX,
   defaultJobOptions: {
     removeOnComplete: { count: 100 },
     removeOnFail:     { count: 50 },

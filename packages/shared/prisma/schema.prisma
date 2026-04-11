@@ -132,6 +132,7 @@ enum ChannelType {
   bca_transfer
   qris_bca
   qris_gopay
+  qris_bri
 }
 
 enum ChannelOwner {

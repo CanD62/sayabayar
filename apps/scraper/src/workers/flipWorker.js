@@ -6,7 +6,7 @@
 // Saldo TIDAK dirollback saat failed — dikembalikan hanya jika admin reject
 
 import { Worker } from 'bullmq'
-import { getRedisConnection } from '../queues.js'
+import { getRedisConnection, QUEUE_PREFIX } from '../queues.js'
 import { getDb } from '@payment-gateway/shared/db'
 import { decrypt, encrypt } from '@payment-gateway/shared/crypto'
 import * as flipClient from '../lib/flipClient.js'
@@ -213,6 +213,7 @@ export function startFlipWorker() {
 
   }, {
     connection: getRedisConnection(),
+    prefix: QUEUE_PREFIX,
     concurrency: 1,         // Sequential — tidak boleh paralel ke Flip
     stalledInterval: 60_000, // Cek stalled job setiap 60s
     maxStalledCount: 1       // Jika stalled 1x → mark failed, jangan retry otomatis

@@ -2,7 +2,7 @@
 // Delivers webhook notifications to client endpoints
 
 import { Worker } from 'bullmq'
-import { getRedisConnection } from '../queues.js'
+import { getRedisConnection, QUEUE_PREFIX } from '../queues.js'
 import { getDb } from '@payment-gateway/shared/db'
 import { generateWebhookSignature, decrypt } from '@payment-gateway/shared/crypto'
 import { WEBHOOK } from '@payment-gateway/shared/constants'
@@ -128,6 +128,7 @@ export function startWebhookWorker(concurrency = 3) {
 
   }, {
     connection: getRedisConnection(),
+    prefix: QUEUE_PREFIX,
     concurrency,
     stalledInterval: 30_000,  // cek stalled job setiap 30s
     maxStalledCount: 3,       // retry 3x sebelum dianggap failed

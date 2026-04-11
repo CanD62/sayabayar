@@ -113,7 +113,7 @@ export async function channelRoutes(fastify) {
         type: 'object',
         required: ['channel_type', 'scraping_config'],
         properties: {
-          channel_type: { type: 'string', enum: ['bca_transfer', 'qris_bca', 'qris_gopay'] },
+          channel_type: { type: 'string', enum: ['bca_transfer', 'qris_bca', 'qris_gopay', 'qris_bri'] },
           account_name: { type: 'string', maxLength: 100 },
           account_number: { type: 'string', maxLength: 50 },
           scraping_config: {
@@ -170,6 +170,7 @@ export async function channelRoutes(fastify) {
         return reply.fail('VALIDATION_ERROR', 'Username QRIS BCA harus berupa alamat email yang valid', 422)
       }
     }
+
 
     // Check duplicate account number
     const existing = await db.paymentChannel.findFirst({

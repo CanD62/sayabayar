@@ -2,7 +2,7 @@
 // Matches scraped transactions to pending invoices
 
 import { Worker } from 'bullmq'
-import { getRedisConnection, webhookQueue } from '../queues.js'
+import { getRedisConnection, webhookQueue, QUEUE_PREFIX } from '../queues.js'
 import { getDb } from '@payment-gateway/shared/db'
 import { MATCH } from '@payment-gateway/shared/constants'
 import Redis from 'ioredis'
@@ -208,6 +208,7 @@ export function startMatchWorker(concurrency = 5) {
 
   }, {
     connection: getRedisConnection(),
+    prefix: QUEUE_PREFIX,
     concurrency,
     stalledInterval: 30_000,  // cek stalled job setiap 30s
     maxStalledCount: 3        // retry 3x sebelum dianggap failed
@@ -221,6 +222,10 @@ export function startMatchWorker(concurrency = 5) {
 
   worker.on('failed', (job, err) => {
     console.error(`[MatchWorker] Job ${job.id} failed:`, err.message)
+  })
+
+  worker.on('ready', () => {
+    console.log('[MatchWorker] ✅ Worker connected to Redis and ready')
   })
 
   console.log(`[MatchWorker] Started with concurrency: ${concurrency}`)

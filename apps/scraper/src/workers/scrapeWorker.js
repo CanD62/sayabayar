@@ -2,19 +2,21 @@
 // BullMQ processor — runs scraping jobs (TRUE STANDBY)
 
 import { Worker } from 'bullmq'
-import { getRedisConnection, matchQueue } from '../queues.js'
+import { getRedisConnection, matchQueue, QUEUE_PREFIX } from '../queues.js'
 import { browserPool } from '../browserPool.js'
 import { canScrape, recordSuccess, recordError, classifyError } from '../circuitBreaker.js'
 import { scrapeBcaTransfer } from '../scrapers/bcaTransfer.js'
 import { scrapeQrisBca } from '../scrapers/qrisBca.js'
 import { scrapeQrisGopay } from '../scrapers/qrisGopay.js'
+import { scrapeQrisBri } from '../scrapers/qrisBri.js'
 import { getDb } from '@payment-gateway/shared/db'
 import { decrypt, generateTransactionHash } from '@payment-gateway/shared/crypto'
 
 const SCRAPERS = {
   bca_transfer: scrapeBcaTransfer,
   qris_bca: scrapeQrisBca,
-  qris_gopay: scrapeQrisGopay
+  qris_gopay: scrapeQrisGopay,
+  qris_bri: scrapeQrisBri
 }
 
 export function startScrapeWorker(concurrency = 5) {
@@ -54,7 +56,7 @@ export function startScrapeWorker(concurrency = 5) {
 
     // ── API-based scrapers skip browser pool ────────────────
     // qris_gopay hits API directly — no browser needed
-    const isApiBased = channelType === 'qris_gopay'
+    const isApiBased = channelType === 'qris_gopay' || channelType === 'qris_bri'
     const session = isApiBased
       ? { mainPage: null, context: null, isLoggedIn: false }
       : await browserPool.getSession(channelId)
@@ -180,12 +182,13 @@ export function startScrapeWorker(concurrency = 5) {
           txNew++
 
           // ── Push to match queue ───────────────────────────
-          await matchQueue.add('match', {
+          const matchJob = await matchQueue.add('match', {
             transactionId: created.id,
             channelId,
             amount: tx.amount,
             referenceNumber: tx.reference_number
           })
+          console.log(`[ScrapeWorker] 📩 Match job queued: tx=${created.id} amount=${tx.amount} jobId=${matchJob.id}`)
 
         } catch (err) {
           if (err.code === 'P2002') {
@@ -240,6 +243,7 @@ export function startScrapeWorker(concurrency = 5) {
 
   }, {
     connection: getRedisConnection(),
+    prefix: QUEUE_PREFIX,
     concurrency,
     limiter: { max: 1, duration: 5000 },
     stalledInterval: 30_000,  // cek stalled job setiap 30s
@@ -253,7 +257,19 @@ export function startScrapeWorker(concurrency = 5) {
   })
 
   worker.on('failed', (job, err) => {
-    console.error(`[ScrapeWorker] Job ${job.id} failed:`, err.message)
+    console.error(`[ScrapeWorker] Job ${job?.id} failed:`, err.message)
+  })
+
+  worker.on('error', (err) => {
+    console.error(`[ScrapeWorker] ❌ Worker error:`, err.message)
+  })
+
+  worker.on('ready', () => {
+    console.log(`[ScrapeWorker] ✅ Worker connected to Redis and ready`)
+  })
+
+  worker.on('active', (job) => {
+    console.log(`[ScrapeWorker] 🔄 Job active: ${job.id}`)
   })
 
   console.log(`[ScrapeWorker] Started with concurrency: ${concurrency}`)

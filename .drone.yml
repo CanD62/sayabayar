@@ -119,6 +119,7 @@ steps:
           -w /app/apps/api \
           -p $API_PORT:$API_PORT \
           -e TZ=Asia/Jakarta \
+          -e NODE_ENV=production \
           -e SCRAPER_URL="http://$VM_IP:$SCRAPER_PORT" \
           -e FRONTEND_URL="https://sayabayar.com,http://$VM_IP:$FRONTEND_PORT" \
           --env-file $APP_DIR/.env.docker \
@@ -135,6 +136,7 @@ steps:
           -w /app/apps/scraper \
           -p $SCRAPER_PORT:$SCRAPER_PORT \
           -e TZ=Asia/Jakarta \
+          -e NODE_ENV=production \
           -e SCRAPER_PORT=$SCRAPER_PORT \
           --env-file $APP_DIR/.env.docker \
           --restart always \

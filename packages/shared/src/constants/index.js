@@ -10,7 +10,8 @@ export const INVOICE_STATUS = {
 export const CHANNEL_TYPE = {
   BCA_TRANSFER: 'bca_transfer',
   QRIS_BCA: 'qris_bca',
-  QRIS_GOPAY: 'qris_gopay'
+  QRIS_GOPAY: 'qris_gopay',
+  QRIS_BRI: 'qris_bri'
 }
 
 export const CHANNEL_OWNER = {
@@ -137,6 +138,11 @@ export const SCRAPE_INTERVAL_OVERRIDES = {
     HIGH: 1_000,       // 3 detik (API call, cepat)
     MEDIUM: 2 * 60_000,   // 2 menit
     LOW: 5 * 60_000    // 5 menit (lebih sering dari default 15m — API tidak mahal)
+  },
+  qris_bri: {
+    HIGH: 2_000,       // 2 detik (API call, cepat)
+    MEDIUM: 2 * 60_000,   // 2 menit
+    LOW: 5 * 60_000    // 5 menit
   }
 }
 
@@ -150,7 +156,8 @@ export function getScrapeInterval(channelType, priority) {
 export const SESSION_TTL = {
   bca_transfer: 60 * 60 * 4,    // 4 jam
   qris_bca: 60 * 30,         // 30 menit
-  qris_gopay: 60 * 60 * 8     // 8 jam
+  qris_gopay: 60 * 60 * 8,    // 8 jam
+  qris_bri: 60 * 60 * 24 * 6  // 6 hari (BRI JWT valid ~7 hari)
 }
 
 // Circuit breaker config
