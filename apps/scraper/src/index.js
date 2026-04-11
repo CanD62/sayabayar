@@ -139,6 +139,43 @@ const testServer = createServer(async (req, res) => {
   const path = urlObj.pathname
   const method = req.method
 
+  // ── POST /pre-deploy ───────────────────────────────────
+  // Dipanggil oleh Drone CI SEBELUM docker stop
+  // Logout semua bank session agar container baru bisa login fresh
+  if (path === '/pre-deploy' && method === 'POST') {
+    console.log('[PreDeploy] 🔄 Logging out all bank sessions before deploy...')
+    const start = Date.now()
+    try {
+      // Stop scheduler dulu agar tidak ada job baru
+      stopScheduler()
+
+      // Close workers (stop processing jobs)
+      await scrapeWorker.close().catch(() => { })
+      await matchWorker.close().catch(() => { })
+
+      // Logout semua browser session (BCA, QRIS BCA, dll)
+      await browserPool.shutdown()
+      await closeFlipBrowser().catch(() => { })
+
+      const elapsed_ms = Date.now() - start
+      console.log(`[PreDeploy] ✅ All sessions logged out (${elapsed_ms}ms)`)
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+        .end(JSON.stringify({ ok: true, elapsed_ms, message: 'All sessions logged out' }))
+    } catch (err) {
+      console.error('[PreDeploy] ❌ Error during pre-deploy:', err.message)
+      res.writeHead(500, { 'Content-Type': 'application/json' })
+        .end(JSON.stringify({ ok: false, error: err.message }))
+    }
+    return
+  }
+
+  // ── GET /health ────────────────────────────────────────
+  if (path === '/health' && method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+      .end(JSON.stringify({ status: 'ok', sessions: browserPool.size }))
+    return
+  }
+
   // ── POST /alaflip-activate ─────────────────────────────
   // Dipanggil oleh admin.js untuk trigger aktivasi Alaflip manual
   if (path === '/alaflip-activate' && method === 'POST') {

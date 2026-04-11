@@ -26,7 +26,7 @@ const FEATURES = [
   {
     icon: Building2,
     title: 'Dana Langsung ke Rekening Anda (Pro)',
-    desc: 'Tambah rekening sendiri (BCA & QRIS). Dana masuk 100% langsung ke rekening Anda — tanpa perantara, tanpa potongan.',
+    desc: 'Tambah rekening sendiri (BCA, BRI & QRIS). Dana masuk 100% langsung ke rekening Anda — tanpa perantara, tanpa potongan.',
   },
   {
     icon: Bell,
@@ -226,7 +226,7 @@ function randomName() {
   }
 }
 
-const CHANNELS = ['BCA Transfer', 'QRIS BCA', 'QRIS GoPay', 'BCA Transfer', 'QRIS GoPay']
+const CHANNELS = ['BCA Transfer', 'QRIS BCA', 'QRIS BRI', 'QRIS GoPay', 'BCA Transfer', 'QRIS BRI', 'QRIS GoPay']
 const fmt = (n) => new Intl.NumberFormat('id-ID').format(n)
 
 function randomAmount(channel) {
@@ -582,7 +582,7 @@ export default function LandingShell() {
               </p>
               <ul className="lp-pricing-features" aria-label="Fitur paket Pro">
                 <li><CheckCircle size={16} /> Semua fitur Gratis</li>
-                <li><CheckCircle size={16} /> Tambah rekening sendiri (BCA &amp; QRIS)</li>
+                <li><CheckCircle size={16} /> Tambah rekening sendiri (BCA, BRI &amp; QRIS)</li>
                 <li><CheckCircle size={16} /> Dana langsung masuk ke rekening Anda</li>
                 <li><CheckCircle size={16} /> Tanpa biaya per transaksi (0%)</li>
                 <li><CheckCircle size={16} /> Channel platform sebagai backup</li>

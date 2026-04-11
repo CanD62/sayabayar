@@ -9,11 +9,12 @@ export const metadata = {
   metadataBase: new URL(SITE_URL),
   title: `${APP_NAME} — Payment Gateway Tanpa Perantara`,
   description:
-    'Buat invoice dalam hitungan detik, pelanggan transfer BCA atau QRIS, sistem langsung mencocokkan otomatis. Tanpa cek mutasi manual, tanpa potongan per transaksi. Gratis untuk mulai.',
+    'Buat invoice dalam hitungan detik, pelanggan transfer BCA atau QRIS (BCA, BRI, GoPay), sistem langsung mencocokkan otomatis. Tanpa cek mutasi manual, tanpa potongan per transaksi. Gratis untuk mulai.',
   keywords: [
     'payment gateway indonesia',
     'invoice otomatis',
     'verifikasi transfer BCA',
+    'QRIS BRI otomatis',
     'QRIS otomatis',
     'terima pembayaran online',
     'tanpa potongan fee',
@@ -31,7 +32,7 @@ export const metadata = {
     siteName: APP_NAME,
     title: `${APP_NAME} — Terima Pembayaran Otomatis Tanpa Potongan`,
     description:
-      'Invoice otomatis, verifikasi transfer BCA/QRIS real-time, dana langsung ke rekening Anda. Gratis untuk mulai. Upgrade ke Pro untuk kontrol penuh.',
+      'Invoice otomatis, verifikasi transfer BCA/QRIS BRI/QRIS BCA real-time, dana langsung ke rekening Anda. Gratis untuk mulai. Upgrade ke Pro untuk kontrol penuh.',
 
     locale: 'id_ID',
   },
@@ -39,7 +40,7 @@ export const metadata = {
     card: 'summary_large_image',
     title: `${APP_NAME} — Terima Pembayaran Otomatis`,
     description:
-      'Invoice BCA/QRIS otomatis. Dana langsung ke rekening Anda. Tanpa potongan fee per transaksi.',
+      'Invoice BCA/QRIS BRI otomatis. Dana langsung ke rekening Anda. Tanpa potongan fee per transaksi.',
 
   },
   robots: {
@@ -122,11 +123,12 @@ const jsonLd = {
       operatingSystem: 'Web',
       url: SITE_URL,
       description:
-        'Sistem invoice dan verifikasi pembayaran otomatis via transfer bank BCA dan QRIS untuk bisnis Indonesia. Tidak perlu cek mutasi manual.',
+        'Sistem invoice dan verifikasi pembayaran otomatis via transfer bank BCA, QRIS BRI, dan QRIS BCA untuk bisnis Indonesia. Tidak perlu cek mutasi manual.',
       featureList: [
         'Verifikasi pembayaran otomatis',
         'Invoice BCA Transfer',
-        'Invoice QRIS',
+        'Invoice QRIS BRI',
+        'Invoice QRIS BCA',
         'Webhook realtime',
         'Dashboard terpusat',
         'API key',

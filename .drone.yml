@@ -128,8 +128,12 @@ steps:
           node src/index.js
         echo "API berjalan di port $API_PORT"
 
+        echo "Pre-deploy: logout semua bank session..."
+        curl -sf -X POST http://$VM_IP:$SCRAPER_PORT/pre-deploy --max-time 60 || echo "⚠️ Pre-deploy skip (scraper mungkin belum jalan)"
+        sleep 2
+
         echo "Deploy Scraper Playwright..."
-        docker stop sayabayar_scraper || true
+        docker stop -t 30 sayabayar_scraper || true
         docker rm sayabayar_scraper || true
         docker run -d --name sayabayar_scraper \
           -v $APP_DIR:/app \
