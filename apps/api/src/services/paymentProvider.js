@@ -12,24 +12,24 @@ import {
   custHeaders,
   parseResponse,
   refreshFlipToken,
-  getAlaflipStatus   as getAlaflipStatusHttp,
-  getAlaflipBalance  as getAlaflipBalanceHttp,
+  getAlaflipStatus as getAlaflipStatusHttp,
+  getAlaflipBalance as getAlaflipBalanceHttp,
   getAlaflipWebviewUrl as getAlaflipWebviewUrlHttp,
   getChargeChallenge,
   executeTransfer,
-  getBankList        as getBankListHttp,
-  checkAccount       as checkAccountHttp,
-  getPaymentMethods  as getPaymentMethodsHttp,
-  confirmTopup       as confirmTopupHttp,
-  getTopupStatus     as getTopupStatusHttp,
-  getCoinBalance     as getCoinBalanceHttp,
+  getBankList as getBankListHttp,
+  checkAccount as checkAccountHttp,
+  getPaymentMethods as getPaymentMethodsHttp,
+  confirmTopup as confirmTopupHttp,
+  getTopupStatus as getTopupStatusHttp,
+  getCoinBalance as getCoinBalanceHttp,
   FLIP_URLS,
   CUST_HOST,
 } from '@payment-gateway/shared/flip'
 
 // ── Cache TTL ──────────────────────────────────────────────
-const BANKS_TTL_SEC   = 60 * 60   // 1 jam
-const ACCOUNT_TTL_SEC = 5  * 60   // 5 menit
+const BANKS_TTL_SEC = 60 * 60   // 1 jam
+const ACCOUNT_TTL_SEC = 5 * 60   // 5 menit
 
 // ── Cache key helper ────────────────────────────────────────
 function accountCacheKey(accountNumber, bank) {
@@ -65,7 +65,7 @@ export function createPaymentProviderService(db, redis, { inputPin, activateAlaf
    */
   async function getToken() {
     const provider = await getProvider()
-    const now      = new Date()
+    const now = new Date()
     const isExpired = !provider.tokenExpiresAt || provider.tokenExpiresAt <= now
 
     if (isExpired) {
@@ -81,7 +81,7 @@ export function createPaymentProviderService(db, redis, { inputPin, activateAlaf
   async function refreshToken(provider) {
     if (!provider) provider = await getProvider()
 
-    const currentToken    = decrypt(provider.token)
+    const currentToken = decrypt(provider.token)
     const currentRefreshToken = provider.refreshToken ? decrypt(provider.refreshToken) : undefined
 
     const body = await refreshFlipToken(currentToken, currentRefreshToken)
@@ -120,11 +120,11 @@ export function createPaymentProviderService(db, redis, { inputPin, activateAlaf
     await db.paymentProvider.update({
       where: { providerName: 'flip' },
       data: {
-        token:          encrypt(newToken),
+        token: encrypt(newToken),
         tokenExpiresAt: expiresAt,
         ...(newRefreshToken ? { refreshToken: encrypt(newRefreshToken) } : {}),
-        userId:         userId ? String(userId) : provider.userId,
-        balance:        balance
+        userId: userId ? String(userId) : provider.userId,
+        balance: balance
       }
     })
 
@@ -175,10 +175,10 @@ export function createPaymentProviderService(db, redis, { inputPin, activateAlaf
 
     _alaflipActivationLock.active = true
     try {
-      const provider  = await getProvider()
-      const token     = await getToken()
-      const deviceId  = getDeviceIdentifier(token)
-      const pin       = provider.pin ? decrypt(provider.pin) : null
+      const provider = await getProvider()
+      const token = await getToken()
+      const deviceId = getDeviceIdentifier(token)
+      const pin = provider.pin ? decrypt(provider.pin) : null
 
       if (!pin) throw new Error('PIN belum dikonfigurasi di provider')
 
@@ -199,11 +199,11 @@ export function createPaymentProviderService(db, redis, { inputPin, activateAlaf
    */
   async function getBankList() {
     const cacheKey = 'pg:flip:banks'
-    const cached   = await redis.get(cacheKey)
+    const cached = await redis.get(cacheKey)
     if (cached) return JSON.parse(cached)
 
     const token = await getToken()
-    const body  = await getBankListHttp(token)
+    const body = await getBankListHttp(token)
 
     let banks
     if (body.supportedBanks && Array.isArray(body.supportedBanks)) {
@@ -215,45 +215,177 @@ export function createPaymentProviderService(db, redis, { inputPin, activateAlaf
       }
 
       const eCommerceSet = new Set(body.eCommerces || [])
-      const eWalletSet   = new Set(body.eWallets || [])
-      const popularSet   = new Set(body.popularBanks || [])
+      const eWalletSet = new Set(body.eWallets || [])
+      const popularSet = new Set(body.popularBanks || [])
 
       const bankCodes = body.supportedBanks.filter(code => !eCommerceSet.has(code))
 
+      // Include unsupported banks too (still work, just slower processing)
+      const unsupported = Array.isArray(body.unsupportedBanks) ? body.unsupportedBanks : []
+      const creditCardSet = new Set(body.creditCards || [])
+      const supportedSet = new Set(bankCodes)
+      const allBankCodes = [
+        ...bankCodes,
+        ...unsupported.filter(code => !eCommerceSet.has(code) && !creditCardSet.has(code) && !supportedSet.has(code)),
+      ]
+
       const FALLBACK_NAMES = {
-        bca:                        'BCA',
-        bri:                        'BRI',
-        mandiri:                    'Bank Mandiri',
-        bni:                        'BNI',
-        bsm:                        'BSI (Bank Syariah Indonesia)',
-        cimb:                       'CIMB Niaga',
-        muamalat:                   'Bank Muamalat',
-        permata:                    'Bank Permata',
-        dbs:                        'DBS Indonesia',
-        danamon:                    'Bank Danamon',
-        btn:                        'BTN',
-        dki:                        'Bank DKI Jakarta',
-        bjb:                        'BJB (Bank Jabar Banten)',
-        tabungan_pensiunan_nasional: 'BTPN Jenius',
-        kesejahteraan_ekonomi:      'BKE (Kesejahteraan Ekonomi)',
-        ovo:                        'OVO',
-        gopay:                      'GoPay',
-        dana:                       'DANA',
-        shopeepay:                  'ShopeePay',
-        linkaja:                    'LinkAja',
-        isaku:                      'iSaku',
+        // ── Big 5 ───────────────────────────────
+        bca: 'BCA',
+        bri: 'BRI',
+        mandiri: 'Bank Mandiri',
+        bni: 'BNI',
+        bsm: 'BSI (Bank Syariah Indonesia)',
+        // ── Supported Banks ─────────────────────
+        cimb: 'CIMB Niaga',
+        muamalat: 'Bank Muamalat',
+        permata: 'Bank Permata',
+        permata_syr: 'Permata Syariah',
+        dbs: 'DBS Indonesia',
+        danamon: 'Bank Danamon',
+        btn: 'BTN',
+        btn_syr: 'BTN Syariah',
+        dki: 'Bank DKI',
+        dki_syr: 'Bank DKI Syariah',
+        bjb: 'BJB',
+        bjb_syr: 'BJB Syariah',
+        tabungan_pensiunan_nasional: 'BTPN',
+        kesejahteraan_ekonomi: 'SeaBank/Bank BKE',
+        // ── E-Wallets ───────────────────────────
+        // ovo:                        'OVO',
+        // gopay:                      'GoPay',
+        // dana:                       'DANA',
+        // shopeepay:                  'ShopeePay',
+        // linkaja:                    'LinkAja',
+        // isaku:                      'iSaku',
+        // ── Neobanks ────────────────────────────
+        artos: 'Bank Jago',
+        artos_syr: 'Bank Jago Syariah',
+        royal: 'Blu/BCA Digital',
+        aladin: 'Bank Aladin Syariah',
+        super_bank: 'Superbank',
+        saqu: 'Bank Saqu',
+        krom: 'Krom Bank',
+        amar: 'Bank Amar Indonesia',
+        harda: 'Allo Bank',
+        nationalnobu: 'Nobu Bank',
+        yudha_bakti: 'Neo Commerce',
+        // ── Major Banks ─────────────────────────
+        mega: 'Bank Mega',
+        mega_syr: 'Bank Mega Syariah',
+        ocbc: 'Bank OCBC NISP',
+        ocbc_syr: 'Bank OCBC NISP Syariah',
+        panin: 'Panin Bank',
+        panin_syr: 'Panin Dubai Syariah',
+        bukopin: 'Wokee/KB Bukopin',
+        bukopin_syr: 'KB Bukopin Syariah',
+        sinarmas: 'Bank Sinarmas',
+        sinarmas_syr: 'Bank Sinarmas Syariah',
+        bca_syr: 'BCA Syariah',
+        bii: 'Maybank Indonesia',
+        bii_syr: 'Maybank Syariah',
+        btpn_syr: 'BTPN Syariah',
+        hsbc: 'HSBC Indonesia',
+        citibank: 'Citibank',
+        commonwealth: 'Commonwealth Bank',
+        standard_chartered: 'Standard Chartered',
+        uob: 'TMRW/UOB',
+        mayapada: 'Bank Mayapada',
+        // ── Foreign Banks ───────────────────────
+        anz: 'ANZ Indonesia',
+        chinatrust: 'CTBC Indonesia',
+        boc: 'Bank of China',
+        india: 'Bank of India Indonesia',
+        tokyo: 'Bank of Tokyo Mitsubishi UFJ',
+        mizuho: 'Bank Mizuho Indonesia',
+        america_na: 'Bank of America NA',
+        bnp_paribas: 'BNP Paribas Indonesia',
+        resona_perdania: 'Bank Resona Perdania',
+        jpmorgan_chase: 'JPMorgan Chase',
+        deutsche: 'Deutsche Bank AG',
+        ccb: 'China Construction Bank',
+        icbc: 'ICBC Indonesia',
+        shinhan: 'Bank Shinhan Indonesia',
+        hana: 'LINE Bank/KEB Hana',
+        woori: 'Bank Woori Saudara',
+        sbi_indonesia: 'SBI Indonesia',
+        qnb_kesawan: 'QNB Indonesia',
+        rabobank: 'Rabobank Indonesia',
+        // ── Regional (BPD) ──────────────────────
+        aceh: 'Bank Aceh Syariah',
+        bali: 'BPD Bali',
+        banten: 'BPD Banten',
+        bengkulu: 'Bank Bengkulu',
+        daerah_istimewa: 'Bank BPD DIY',
+        daerah_istimewa_syr: 'Bank BPD DIY Syariah',
+        jambi: 'Bank Jambi',
+        jambi_syr: 'Bank Jambi Syariah',
+        jawa_tengah: 'Bank Jateng',
+        jawa_tengah_syr: 'Bank Jateng Syariah',
+        jawa_timur: 'Bank Jatim',
+        jawa_timur_syr: 'Bank Jatim Syariah',
+        kalimantan_barat: 'Bank Kalbar',
+        kalimantan_barat_syr: 'Bank Kalbar Syariah',
+        kalimantan_selatan: 'Bank Kalsel',
+        kalimantan_selatan_syr: 'Bank Kalsel Syariah',
+        kalimantan_tengah: 'Bank Kalteng',
+        kalimantan_timur: 'Bank Kaltimtara',
+        kalimantan_timur_syr: 'Bank Kaltim Syariah',
+        lampung: 'Bank Lampung',
+        maluku: 'Bank Maluku',
+        nusa_tenggara_barat: 'Bank NTB Syariah',
+        nusa_tenggara_timur: 'Bank NTT',
+        papua: 'Bank Papua',
+        riau_dan_kepri: 'Bank Riau Kepri',
+        sulawesi: 'Bank Sulteng',
+        sulawesi_tenggara: 'Bank Sultra',
+        sulselbar: 'Bank Sulselbar',
+        sulselbar_syr: 'Bank Sulselbar Syariah',
+        sulut: 'Bank SulutGo',
+        sumatera_barat: 'Bank Nagari',
+        sumatera_barat_syr: 'Bank Nagari Syariah',
+        sumsel_dan_babel: 'Bank Sumsel Babel',
+        sumsel_dan_babel_syr: 'Bank Sumsel Babel Syariah',
+        sumut: 'Bank Sumut',
+        sumut_syr: 'Bank Sumut Syariah',
+        // ── Smaller / Niche ─────────────────────
+        agroniaga: 'BRI Agroniaga/Bank Raya',
+        agris: 'Bank IBK Indonesia',
+        antardaerah: 'Bank Antardaerah',
+        artha: 'Bank Artha Graha',
+        bumi_arta: 'Bank Bumi Arta',
+        capital: 'Bank Capital Indonesia',
+        cnb: 'Bank CNB',
+        dinar: 'Bank Oke Indonesia',
+        eka: 'BPR EKA',
+        ganesha: 'Bank Ganesha',
+        ina_perdana: 'Bank Ina Perdana',
+        index_selindo: 'Bank Index Selindo',
+        jasa_jakarta: 'Bank Jasa Jakarta',
+        mantap: 'Bank MANTAP',
+        mas: 'Bank MAS',
+        maspion: 'Bank Maspion',
+        mayora: 'Bank Mayora',
+        mestika_dharma: 'Bank Mestika Dharma',
+        mnc_internasional: 'Motion/MNC Bank',
+        mutiara: 'Bank JTrust Indonesia',
+        nusantara_parahyangan: 'Bank Nusantara Parahyangan',
+        prima: 'Bank Prima Master',
+        sahabat_sampoerna: 'Bank Sahabat Sampoerna',
+        victoria_internasional: 'Bank Victoria International',
+        victoria_syr: 'BSN (Bank Syariah Nasional)',
       }
 
-      banks = bankCodes.map(code => ({
+      banks = allBankCodes.map(code => ({
         code,
-        id:        code,
-        name:      nameMap[code] || FALLBACK_NAMES[code] || code.replace(/_/g, ' ').toUpperCase(),
-        popular:   popularSet.has(code) && !eWalletSet.has(code),
+        id: code,
+        name: nameMap[code] || FALLBACK_NAMES[code] || code.replace(/_/g, ' ').toUpperCase(),
+        popular: popularSet.has(code) && !eWalletSet.has(code),
         isEwallet: eWalletSet.has(code)
       }))
 
       const popularOrder = (body.popularBanks || []).filter(c => !eCommerceSet.has(c) && !eWalletSet.has(c))
-      const popularMap   = Object.fromEntries(popularOrder.map((c, i) => [c, i]))
+      const popularMap = Object.fromEntries(popularOrder.map((c, i) => [c, i]))
 
       banks.sort((a, b) => {
         if (a.isEwallet !== b.isEwallet) return a.isEwallet ? 1 : -1
@@ -265,9 +397,9 @@ export function createPaymentProviderService(db, redis, { inputPin, activateAlaf
 
     } else {
       banks = Object.entries(body).map(([code, info]) => ({
-        id:      code,
+        id: code,
         code,
-        name:    info.name || code,
+        name: info.name || code,
         popular: false
       })).sort((a, b) => a.name.localeCompare(b.name))
     }
@@ -284,7 +416,7 @@ export function createPaymentProviderService(db, redis, { inputPin, activateAlaf
   async function checkAccount(accountNumber, bank) {
     const bankCode = bank.toLowerCase()
     const cacheKey = accountCacheKey(accountNumber, bankCode)
-    const cached   = await redis.get(cacheKey)
+    const cached = await redis.get(cacheKey)
     if (cached) return JSON.parse(cached)
 
     const token = await getToken()
@@ -300,7 +432,7 @@ export function createPaymentProviderService(db, redis, { inputPin, activateAlaf
       if (isBankInvalid) {
         const customErr = new Error(`Kode bank tidak valid: ${bankCode}`)
         customErr.status = 422
-        customErr.code   = 'BANK_INVALID'
+        customErr.code = 'BANK_INVALID'
         throw customErr
       }
       throw err
@@ -309,9 +441,9 @@ export function createPaymentProviderService(db, redis, { inputPin, activateAlaf
     // Response format baru: { success: true, data: { account_number, bank, account_name, ... } }
     const data = body?.data || body
     const result = {
-      account_name:   data?.account_name || data?.account_holder || data?.name || null,
+      account_name: data?.account_name || data?.account_holder || data?.name || null,
       account_number: data?.account_number || accountNumber,
-      bank:           bankCode
+      bank: bankCode
     }
 
     if (!result.account_name) {
@@ -348,7 +480,7 @@ export function createPaymentProviderService(db, redis, { inputPin, activateAlaf
       return data
     } catch (err) {
       const errBody = err.flipBody || {}
-      
+
       const isAlaflipInactive = (
         errBody?.message?.toLowerCase().includes('alaflip') ||
         errBody?.message?.toLowerCase().includes('inactive') ||
@@ -393,16 +525,16 @@ export function createPaymentProviderService(db, redis, { inputPin, activateAlaf
     const token = await getToken()
 
     const body = new URLSearchParams({
-      sender_bank:       senderBank.toLowerCase(),
-      sender_bank_type:  senderBankType,
-      amount:            String(amount),
-      remark:            '',
-      account_number:    accountNumber,
-      beneficiary_bank:  'superflip'
+      sender_bank: senderBank.toLowerCase(),
+      sender_bank_type: senderBankType,
+      amount: String(amount),
+      remark: '',
+      account_number: accountNumber,
+      beneficiary_bank: 'superflip'
     })
 
     const res = await fetch(FLIP_URLS.topup, {
-      method:  'POST',
+      method: 'POST',
       headers: flipHeaders(token, 'application/x-www-form-urlencoded', {
         'idempotency-key': idempotencyKey,
       }),

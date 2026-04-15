@@ -14,6 +14,7 @@ export {
   refreshFlipToken  as refreshToken,
   getAlaflipStatus,
   getAlaflipBalance as saldoAladin,
+  getAlaflipBalanceFull,
   getAlaflipWebviewUrl,
   getChargeChallenge as getTokenTransfer,
   executeTransfer   as transferBank,

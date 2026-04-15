@@ -455,6 +455,16 @@ export async function authRoutes(fastify) {
 
     const activeSub = client.subscriptions?.[0]
 
+    // Fetch KYC status if disbursement_user
+    let kycStatus = null
+    if (client.role === 'disbursement_user') {
+      const kyc = await db.kycDocument.findUnique({
+        where: { clientId: client.id },
+        select: { status: true }
+      })
+      kycStatus = kyc?.status || null
+    }
+
     return reply.success({
       access_token: accessToken,
       expires_in: JWT_EXPIRES,
@@ -469,6 +479,8 @@ export async function authRoutes(fastify) {
         has_password: !!client.passwordHash,
         email_verified: client.emailVerified,
         is_admin: client.email === process.env.ADMIN_EMAIL,
+        role: client.role,
+        kyc_status: kycStatus,
         plan: activeSub ? {
           name: activeSub.plan.name,
           plan_type: activeSub.plan.planType,
@@ -566,6 +578,16 @@ export async function authRoutes(fastify) {
     const client = request.client
     const activeSub = client.subscriptions?.[0]
 
+    // Fetch KYC status if disbursement_user
+    let kycStatus = null
+    if (client.role === 'disbursement_user') {
+      const kyc = await request.server.db.kycDocument.findUnique({
+        where: { clientId: client.id },
+        select: { status: true }
+      })
+      kycStatus = kyc?.status || null
+    }
+
     return reply.success({
       id: client.id,
       name: client.name,
@@ -577,6 +599,8 @@ export async function authRoutes(fastify) {
       has_password: !!client.passwordHash,
       email_verified: client.emailVerified,
       is_admin: client.email === process.env.ADMIN_EMAIL,
+      role: client.role,
+      kyc_status: kycStatus,
       plan: activeSub ? {
         name: activeSub.plan.name,
         plan_type: activeSub.plan.planType,

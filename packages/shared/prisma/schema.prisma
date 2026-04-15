@@ -24,6 +24,7 @@ model Client {
   avatarUrl      String?  @map("avatar_url") @db.VarChar(500)
   emailVerified  Boolean  @default(false) @map("email_verified")
   status         ClientStatus @default(active)
+  role           ClientRole   @default(merchant)
   createdAt      DateTime @default(now()) @map("created_at")
 
   apiKeys             ApiKey[]
@@ -34,6 +35,10 @@ model Client {
   balanceLedgerEntries BalanceLedger[]
   withdrawals         Withdrawal[]
   webhookEndpoints    WebhookEndpoint[]
+  kycDocument         KycDocument?
+  disbursementBalance DisbursementBalance?
+  disbursementDeposits DisbursementDeposit[]
+  disbursements       Disbursement[]
 
   @@map("clients")
 }
@@ -42,6 +47,11 @@ enum ClientStatus {
   active
   suspended
   inactive
+}
+
+enum ClientRole {
+  merchant            // default — payment gateway biasa
+  disbursement_user   // bisa akses disbursement (setelah KYC approved)
 }
 
 // ─── API KEYS ─────────────────────────────────────────────
@@ -421,4 +431,116 @@ model PaymentProvider {
   createdAt      DateTime  @default(now()) @map("created_at")
 
   @@map("payment_providers")
+}
+
+// ─── KYC DOCUMENTS ────────────────────────────────────────
+
+model KycDocument {
+  id              String    @id @default(uuid()) @db.Char(36)
+  clientId        String    @unique @map("client_id") @db.Char(36)
+  ktpImagePath    String    @map("ktp_image_path") @db.VarChar(500)
+  selfieImagePath String    @map("selfie_image_path") @db.VarChar(500)
+  fullName        String    @map("full_name") @db.VarChar(200)
+  ktpNumber       String    @map("ktp_number") @db.VarChar(20)
+  status          KycStatus @default(pending)
+  rejectionReason String?   @map("rejection_reason") @db.Text
+  reviewedBy      String?   @map("reviewed_by") @db.Char(36)
+  reviewedAt      DateTime? @map("reviewed_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  client Client @relation(fields: [clientId], references: [id])
+
+  @@map("kyc_documents")
+}
+
+enum KycStatus {
+  pending
+  approved
+  rejected
+}
+
+// ─── DISBURSEMENT BALANCES ────────────────────────────────
+
+model DisbursementBalance {
+  clientId        String   @id @map("client_id") @db.Char(36)
+  balance         Decimal  @default(0) @db.Decimal(15, 2)
+  totalDeposited  Decimal  @default(0) @map("total_deposited") @db.Decimal(15, 2)
+  totalDisbursed  Decimal  @default(0) @map("total_disbursed") @db.Decimal(15, 2)
+  totalFees       Decimal  @default(0) @map("total_fees") @db.Decimal(15, 2)
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  client Client @relation(fields: [clientId], references: [id])
+
+  @@map("disbursement_balances")
+}
+
+// ─── DISBURSEMENT DEPOSITS ────────────────────────────────
+
+model DisbursementDeposit {
+  id              String                    @id @default(uuid()) @db.Char(36)
+  clientId        String                    @map("client_id") @db.Char(36)
+  amount          Decimal                   @db.Decimal(15, 2)
+  uniqueCode      Int                       @default(0) @map("unique_code") @db.SmallInt
+  totalTransfer   Decimal                   @map("total_transfer") @db.Decimal(15, 2)
+  senderBank      String                    @map("sender_bank") @db.VarChar(50)
+  flipTopupId     String?                   @map("flip_topup_id") @db.VarChar(100)
+  status          DisbursementDepositStatus @default(pending)
+  receiverBank    Json?                     @map("receiver_bank")  // bank tujuan dari Flip
+  idempotencyKey  String                    @unique @map("idempotency_key") @db.VarChar(100)
+  createdAt       DateTime                  @default(now()) @map("created_at")
+  confirmedAt     DateTime?                 @map("confirmed_at")
+  completedAt     DateTime?                 @map("completed_at")
+
+  client Client @relation(fields: [clientId], references: [id])
+
+  @@index([clientId, createdAt], name: "idx_deposit_client")
+  @@map("disbursement_deposits")
+}
+
+enum DisbursementDepositStatus {
+  pending
+  confirmed
+  done
+  expired
+  failed
+}
+
+// ─── DISBURSEMENTS ────────────────────────────────────────
+
+model Disbursement {
+  id                 String             @id @default(uuid()) @db.Char(36)
+  clientId           String             @map("client_id") @db.Char(36)
+  amount             Decimal            @db.Decimal(15, 2)
+  fee                Decimal            @default(2500) @db.Decimal(12, 2)
+  totalDeducted      Decimal            @map("total_deducted") @db.Decimal(15, 2)
+  destinationBank    String             @map("destination_bank") @db.VarChar(50)
+  destinationAccount String             @map("destination_account") @db.VarChar(50)
+  destinationName    String             @map("destination_name") @db.VarChar(100)
+  status             DisbursementStatus @default(pending)
+  failureReason      String?            @map("failure_reason") @db.Text
+  flipTrxId          String?            @map("flip_trx_id") @db.VarChar(100)
+  idempotencyKey     String             @unique @map("idempotency_key") @db.VarChar(100)
+  source             DisbursementSource @default(dashboard)
+  note               String?            @db.VarChar(255)
+  createdAt          DateTime           @default(now()) @map("created_at")
+  processedAt        DateTime?          @map("processed_at")
+
+  client Client @relation(fields: [clientId], references: [id])
+
+  @@index([clientId, createdAt], name: "idx_disbursement_client")
+  @@index([status], name: "idx_disbursement_status")
+  @@map("disbursements")
+}
+
+enum DisbursementStatus {
+  pending
+  processing
+  success
+  failed
+}
+
+enum DisbursementSource {
+  dashboard
+  api
 }

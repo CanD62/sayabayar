@@ -55,6 +55,24 @@ export const WITHDRAWAL_STATUS = {
   REJECTED: 'rejected'
 }
 
+export const DISBURSEMENT_STATUS = {
+  PENDING: 'pending',
+  PROCESSING: 'processing',
+  SUCCESS: 'success',
+  FAILED: 'failed'
+}
+
+export const KYC_STATUS = {
+  PENDING: 'pending',
+  APPROVED: 'approved',
+  REJECTED: 'rejected'
+}
+
+export const CLIENT_ROLE = {
+  MERCHANT: 'merchant',
+  DISBURSEMENT_USER: 'disbursement_user'
+}
+
 export const INVOICE_SOURCE = {
   DASHBOARD: 'dashboard',
   API: 'api'
@@ -111,6 +129,18 @@ export const ERROR_CODES = {
   // Lookup
   LOOKUP_ACCOUNT_NOT_FOUND: 'LOOKUP_ACCOUNT_NOT_FOUND',
   LOOKUP_SERVICE_ERROR: 'LOOKUP_SERVICE_ERROR',
+
+  // Disbursement / KYC
+  DISBURSEMENT_KYC_REQUIRED: 'DISBURSEMENT_KYC_REQUIRED',
+  DISBURSEMENT_KYC_PENDING: 'DISBURSEMENT_KYC_PENDING',
+  DISBURSEMENT_ROLE_REQUIRED: 'DISBURSEMENT_ROLE_REQUIRED',
+  DISBURSEMENT_INSUFFICIENT_BALANCE: 'DISBURSEMENT_INSUFFICIENT_BALANCE',
+  DISBURSEMENT_BELOW_MINIMUM: 'DISBURSEMENT_BELOW_MINIMUM',
+  DISBURSEMENT_TRANSFER_FAILED: 'DISBURSEMENT_TRANSFER_FAILED',
+  DISBURSEMENT_DEPOSIT_NOT_FOUND: 'DISBURSEMENT_DEPOSIT_NOT_FOUND',
+  DISBURSEMENT_NOT_FOUND: 'DISBURSEMENT_NOT_FOUND',
+  KYC_ALREADY_SUBMITTED: 'KYC_ALREADY_SUBMITTED',
+  KYC_NOT_FOUND: 'KYC_NOT_FOUND',
 
   // General
   VALIDATION_ERROR: 'VALIDATION_ERROR',
@@ -218,4 +248,23 @@ export function getUniqueCodeRange(amount) {
 export const WITHDRAW = {
   MIN_AMOUNT: 50_000,
   DEFAULT_FEE: 2_500
+}
+
+// Disbursement config
+export const DISBURSEMENT = {
+  MIN_AMOUNT: 10_000,
+  MIN_DEPOSIT: 50_000,
+  // Fee berjenjang: < 100k → Rp 2.500, >= 100k → Rp 3.000
+  FEE_LOW: 2_500,   // transfer < Rp 100.000
+  FEE_HIGH: 3_000,   // transfer >= Rp 100.000
+  FEE_THRESHOLD: 100_000,
+  /** @deprecated pakai getFee(amount) */
+  DEFAULT_FEE: 2_500,
+}
+
+/** Hitung fee berdasarkan nominal transfer */
+export function getDisbursementFee(amount) {
+  return amount >= DISBURSEMENT.FEE_THRESHOLD
+    ? DISBURSEMENT.FEE_HIGH
+    : DISBURSEMENT.FEE_LOW
 }

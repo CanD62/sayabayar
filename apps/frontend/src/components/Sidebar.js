@@ -4,7 +4,7 @@ import { usePathname } from 'next/navigation'
 import Link from 'next/link'
 import {
   LayoutDashboard, FileText, Building2, Wallet,
-  Star, Link2, KeyRound, UserCog, LogOut, Menu, ShieldCheck
+  Star, Link2, KeyRound, UserCog, LogOut, Menu, ShieldCheck, Send
 } from 'lucide-react'
 import LogoIcon from '@/components/LogoIcon'
 
@@ -13,6 +13,7 @@ const NAV_ITEMS = [
   { href: '/dashboard/invoices', label: 'Invoice', icon: FileText },
   { href: '/dashboard/channels', label: 'Channel', icon: Building2 },
   { href: '/dashboard/balance', label: 'Saldo', icon: Wallet },
+  { href: '/dashboard/disbursement', label: 'Disbursement', icon: Send, requireRole: 'disbursement_user' },
   { href: '/dashboard/billing', label: 'Billing', icon: Star },
   { href: '/dashboard/webhooks', label: 'Webhook', icon: Link2 },
   { href: '/dashboard/api-keys', label: 'API Keys', icon: KeyRound },
@@ -35,7 +36,9 @@ export default function Sidebar({ isOpen, onClose }) {
         </div>
 
         <nav className="sidebar-nav">
-          {NAV_ITEMS.map(item => {
+          {NAV_ITEMS
+            .filter(item => !item.requireRole || user?.role === item.requireRole)
+            .map(item => {
             const Icon = item.icon
             return (
               <Link

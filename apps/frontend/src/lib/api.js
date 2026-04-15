@@ -113,9 +113,31 @@ class ApiClient {
     }
 
     if (!data.success && res.status >= 400) {
-      const err = new Error(data.error?.message || 'Request failed')
+      let message = data.error?.message || 'Request failed'
+
+      // Untuk VALIDATION_ERROR, tambahkan detail field-level ke pesan utama
+      const details = data.error?.details
+      if (details?.length) {
+        const detailStr = details
+          .map(d => {
+            const fieldLabel = d.field ? `${d.field}: ` : ''
+            // Terjemahkan pesan validasi Ajv yang teknis ke bahasa yang lebih mudah dipahami
+            let msg = d.message || ''
+            msg = msg.replace(/must be >= (\d+)/, (_, n) => `minimal Rp ${Number(n).toLocaleString('id-ID')}`)
+            msg = msg.replace(/must be <= (\d+)/, (_, n) => `maksimal Rp ${Number(n).toLocaleString('id-ID')}`)
+            msg = msg.replace(/must be integer/, 'harus bilangan bulat')
+            msg = msg.replace(/must be string/, 'harus berupa teks')
+            msg = msg.replace(/must have required property '(.+)'/, "field '$1' wajib diisi")
+            return `${fieldLabel}${msg}`
+          })
+          .join(', ')
+        message = `${message} — ${detailStr}`
+      }
+
+      const err = new Error(message)
       err.code = data.error?.code
       err.status = res.status
+      err.details = details
       throw err
     }
 
@@ -146,6 +168,45 @@ class ApiClient {
   post(path, body) { return this.request(path, { method: 'POST', body }) }
   patch(path, body) { return this.request(path, { method: 'PATCH', body }) }
   del(path) { return this.request(path, { method: 'DELETE' }) }
+
+  /** Upload multipart FormData (for file uploads like KYC) */
+  async upload(path, formData) {
+    const token = this.getToken()
+    const headers = {}
+    if (token) headers['Authorization'] = `Bearer ${token}`
+    // Don't set Content-Type — browser sets it automatically with boundary
+
+    let res
+    try {
+      res = await fetch(`${API_URL}${path}`, {
+        method: 'POST',
+        headers,
+        body: formData,
+        credentials: 'include'
+      })
+    } catch {
+      const err = new Error('Tidak dapat terhubung ke server.')
+      err.code = 'NETWORK_ERROR'
+      throw err
+    }
+
+    let data
+    try { data = await res.json() } catch {
+      const err = new Error('Respons server tidak valid.')
+      err.code = 'INVALID_RESPONSE'
+      err.status = res.status
+      throw err
+    }
+
+    if (!data.success && res.status >= 400) {
+      const err = new Error(data.error?.message || 'Upload failed')
+      err.code = data.error?.code
+      err.status = res.status
+      throw err
+    }
+
+    return data
+  }
 }
 
 export const api = new ApiClient()

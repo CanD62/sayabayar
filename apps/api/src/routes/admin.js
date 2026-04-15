@@ -3,7 +3,12 @@
 
 import { authenticate, checkClientStatus, isAdmin } from '../middleware/authenticate.js'
 import { encrypt, decrypt } from '@payment-gateway/shared/crypto'
+import { getAlaflipBalanceFull, decodeJwtPayload } from '@payment-gateway/shared/flip'
 import { Queue } from 'bullmq'
+
+// Queue prefix must match the scraper worker (apps/scraper/src/queues.js)
+const ENV = process.env.NODE_ENV || 'development'
+const QUEUE_PREFIX = ENV === 'production' ? 'bull' : `bull:${ENV}`
 
 function getFlipQueue() {
   const url = new URL(process.env.REDIS_URL || 'redis://localhost:6379')
@@ -13,7 +18,8 @@ function getFlipQueue() {
       port: parseInt(url.port) || 6379,
       password: url.password || undefined,
       maxRetriesPerRequest: null
-    }
+    },
+    prefix: QUEUE_PREFIX,
   })
 }
 
@@ -22,48 +28,12 @@ export async function adminRoutes(fastify) {
   const flipQueue = getFlipQueue()
 
   // ── Shared helpers ──────────────────────────────────────
-  /** Decode device_identifier from Flip JWT token */
-  function decodeDeviceId(token) {
-    try {
-      const b64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')
-      const pad = b64.padEnd(b64.length + (4 - b64.length % 4) % 4, '=')
-      return JSON.parse(Buffer.from(pad, 'base64').toString())?.data?.device_identifier
-    } catch { return null }
-  }
+  // JWT decode — alias dari shared/flip (decodeJwtPayload)
+  const decodeJwt = decodeJwtPayload
 
-  /** Decode JWT payload */
-  function decodeJwt(t) {
-    try {
-      const b64 = t.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')
-      const padded = b64.padEnd(b64.length + (4 - b64.length % 4) % 4, '=')
-      return JSON.parse(Buffer.from(padded, 'base64').toString('utf8'))
-    } catch { return null }
-  }
-
-  /** Build standard Alaflip API headers */
-  function alaflipHeaders(token, deviceId) {
-    return {
-      'Authorization': `Bearer ${token}`,
-      'api-key': 'EDdwAw954mv4VyjpXLXZ5pRehJNXNmhsqdMbPFyaDq28aAhz',
-      'x-internal-api-key': 'VlhObGNsQnliMlpwYkdWQmJtUkJkWFJvWlc1MGFXTmhkR2x2YmxObGNuWnBZMlU2T1RBNQ==',
-      ...(deviceId ? { 'x-device-id': deviceId } : {}),
-      'accept-language': 'en-ID',
-      'content-language': 'en-ID',
-      'content-type': 'application/x-www-form-urlencoded',
-      'Host': 'customer.flip.id',
-      'User-Agent': 'okhttp/4.10.0',
-    }
-  }
-
-  /** Fetch Alaflip balance from Flip API. Returns { balance, account_id, account_name } or null */
+  // fetchAlaflipBalance — pakai shared/flip (single source of truth)
   async function fetchAlaflipBalance(token, userId) {
-    const deviceId = decodeDeviceId(token)
-    const res = await fetch(
-      `https://customer.flip.id/alaflip/api/v1/users/${userId}/balance`,
-      { method: 'GET', headers: alaflipHeaders(token, deviceId) }
-    )
-    const body = await res.json()
-    return body?.data || null
+    return getAlaflipBalanceFull(userId, token)
   }
 
   // All admin routes require: auth + active status + isAdmin
@@ -269,6 +239,8 @@ export async function adminRoutes(fastify) {
           include: { channelState: true },
           orderBy: { createdAt: 'desc' },
         },
+        kycDocument: { select: { id: true, status: true, fullName: true, ktpNumber: true, createdAt: true, reviewedAt: true, rejectionReason: true } },
+        disbursementBalance: true,
         _count: { select: { invoices: true, withdrawals: true, apiKeys: true } },
       }
     })
@@ -295,9 +267,25 @@ export async function adminRoutes(fastify) {
       email: client.email,
       phone: client.phone,
       status: client.status,
+      role: client.role,
       auth_provider: client.authProvider,
       avatar_url: client.avatarUrl,
       created_at: client.createdAt,
+      kyc: client.kycDocument ? {
+        id: client.kycDocument.id,
+        status: client.kycDocument.status,
+        full_name: client.kycDocument.fullName,
+        ktp_number: client.kycDocument.ktpNumber,
+        rejection_reason: client.kycDocument.rejectionReason,
+        submitted_at: client.kycDocument.createdAt,
+        reviewed_at: client.kycDocument.reviewedAt,
+      } : null,
+      disbursement_balance: client.disbursementBalance ? {
+        balance: Number(client.disbursementBalance.balance),
+        total_deposited: Number(client.disbursementBalance.totalDeposited),
+        total_disbursed: Number(client.disbursementBalance.totalDisbursed),
+        total_fees: Number(client.disbursementBalance.totalFees),
+      } : null,
       subscriptions: client.subscriptions.map(s => ({
         id: s.id,
         plan_id: s.planId,
@@ -2054,6 +2042,463 @@ export async function adminRoutes(fastify) {
       },
       subscribers,
       monthly_report: monthlyReport,
+    })
+  })
+
+  // ══════════════════════════════════════════════════════════
+  // CLIENT ROLE MANAGEMENT
+  // ══════════════════════════════════════════════════════════
+
+  // ── PATCH /admin/clients/:id/role ────────────────────────
+  // Upgrade/downgrade client role
+  fastify.patch('/clients/:id/role', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['role'],
+        properties: {
+          role: { type: 'string', enum: ['merchant', 'disbursement_user'] }
+        }
+      }
+    }
+  }, async (request, reply) => {
+    const { id } = request.params
+    const { role } = request.body
+
+    const client = await db.client.findUnique({ where: { id } })
+    if (!client) return reply.fail('NOT_FOUND', 'Merchant tidak ditemukan', 404)
+
+    if (client.role === role) {
+      return reply.fail('VALIDATION_ERROR', `Role sudah ${role}`, 422)
+    }
+
+    await db.client.update({
+      where: { id },
+      data: { role }
+    })
+
+    // If upgrading to disbursement_user, ensure DisbursementBalance exists
+    if (role === 'disbursement_user') {
+      await db.disbursementBalance.upsert({
+        where: { clientId: id },
+        create: { clientId: id },
+        update: {}
+      })
+    }
+
+    fastify.log.info(`[Admin] Client ${client.email} (${id}): role → ${role}`)
+
+    return reply.success({
+      id,
+      role,
+      message: `Role berhasil diubah ke ${role === 'disbursement_user' ? 'Disbursement User' : 'Merchant'}`
+    })
+  })
+
+  // ══════════════════════════════════════════════════════════
+  // KYC MANAGEMENT
+  // ══════════════════════════════════════════════════════════
+
+  // ── GET /admin/kyc ──────────────────────────────────────
+  // List all KYC submissions
+  fastify.get('/kyc', {
+    schema: {
+      querystring: {
+        type: 'object',
+        properties: {
+          page: { type: 'integer', minimum: 1, default: 1 },
+          per_page: { type: 'integer', minimum: 1, maximum: 50, default: 20 },
+          status: { type: 'string', enum: ['pending', 'approved', 'rejected'] },
+        }
+      }
+    }
+  }, async (request, reply) => {
+    const { page = 1, per_page = 20, status } = request.query
+
+    const where = {
+      ...(status && { status }),
+    }
+
+    const [docs, total] = await Promise.all([
+      db.kycDocument.findMany({
+        where,
+        include: {
+          client: { select: { id: true, name: true, email: true, role: true, status: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * per_page,
+        take: per_page,
+      }),
+      db.kycDocument.count({ where })
+    ])
+
+    const mapped = docs.map(d => ({
+      id: d.id,
+      client_id: d.clientId,
+      client_name: d.client.name,
+      client_email: d.client.email,
+      client_role: d.client.role,
+      full_name: d.fullName,
+      ktp_number: d.ktpNumber,
+      status: d.status,
+      rejection_reason: d.rejectionReason,
+      reviewed_at: d.reviewedAt,
+      created_at: d.createdAt,
+    }))
+
+    return reply.paginated(mapped, {
+      page, per_page, total, total_pages: Math.ceil(total / per_page)
+    })
+  })
+
+  // ── GET /admin/kyc/:id ──────────────────────────────────
+  // KYC detail with presigned URLs for viewing images
+  fastify.get('/kyc/:id', async (request, reply) => {
+    const doc = await db.kycDocument.findUnique({
+      where: { id: request.params.id },
+      include: {
+        client: { select: { id: true, name: true, email: true, role: true, status: true } },
+      }
+    })
+
+    if (!doc) return reply.fail('KYC_NOT_FOUND', 'KYC tidak ditemukan', 404)
+
+    // Generate presigned URLs for KTP and selfie
+    let ktpUrl = null
+    let selfieUrl = null
+
+    if (fastify.minio?.s3) {
+      try {
+        ktpUrl = await fastify.minio.getUrl(doc.ktpImagePath, 3600)
+        selfieUrl = await fastify.minio.getUrl(doc.selfieImagePath, 3600)
+      } catch (e) {
+        fastify.log.error(`[Admin] Failed to get presigned URLs: ${e.message}`)
+      }
+    }
+
+    return reply.success({
+      id: doc.id,
+      client_id: doc.clientId,
+      client_name: doc.client.name,
+      client_email: doc.client.email,
+      client_role: doc.client.role,
+      full_name: doc.fullName,
+      ktp_number: doc.ktpNumber,
+      ktp_image_url: ktpUrl,
+      selfie_image_url: selfieUrl,
+      ktp_image_path: doc.ktpImagePath,
+      selfie_image_path: doc.selfieImagePath,
+      status: doc.status,
+      rejection_reason: doc.rejectionReason,
+      reviewed_by: doc.reviewedBy,
+      reviewed_at: doc.reviewedAt,
+      created_at: doc.createdAt,
+      updated_at: doc.updatedAt,
+    })
+  })
+
+  // ── POST /admin/kyc/:id/approve ─────────────────────────
+  fastify.post('/kyc/:id/approve', async (request, reply) => {
+    const doc = await db.kycDocument.findUnique({
+      where: { id: request.params.id },
+      include: { client: { select: { id: true, email: true } } }
+    })
+
+    if (!doc) return reply.fail('KYC_NOT_FOUND', 'KYC tidak ditemukan', 404)
+    if (doc.status === 'approved') return reply.fail('VALIDATION_ERROR', 'KYC sudah di-approve', 422)
+
+    const now = new Date()
+    const adminId = request.client.id
+
+    await db.$transaction([
+      db.kycDocument.update({
+        where: { id: doc.id },
+        data: {
+          status: 'approved',
+          rejectionReason: null,
+          reviewedBy: adminId,
+          reviewedAt: now,
+        }
+      }),
+      // Ensure DisbursementBalance exists
+      db.disbursementBalance.upsert({
+        where: { clientId: doc.clientId },
+        create: { clientId: doc.clientId },
+        update: {}
+      }),
+    ])
+
+    fastify.log.info(`[Admin] KYC approved: ${doc.client.email} (${doc.clientId})`)
+
+    return reply.success({
+      id: doc.id,
+      status: 'approved',
+      message: `KYC ${doc.client.email} berhasil di-approve.`,
+    })
+  })
+
+  // ── POST /admin/kyc/:id/reject ──────────────────────────
+  fastify.post('/kyc/:id/reject', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['reason'],
+        properties: {
+          reason: { type: 'string', minLength: 5, maxLength: 500 }
+        }
+      }
+    }
+  }, async (request, reply) => {
+    const { reason } = request.body
+
+    const doc = await db.kycDocument.findUnique({
+      where: { id: request.params.id },
+      include: { client: { select: { id: true, email: true } } }
+    })
+
+    if (!doc) return reply.fail('KYC_NOT_FOUND', 'KYC tidak ditemukan', 404)
+    if (doc.status === 'approved') return reply.fail('VALIDATION_ERROR', 'KYC sudah di-approve, tidak bisa ditolak', 422)
+
+    await db.kycDocument.update({
+      where: { id: doc.id },
+      data: {
+        status: 'rejected',
+        rejectionReason: reason,
+        reviewedBy: request.client.id,
+        reviewedAt: new Date(),
+      }
+    })
+
+    fastify.log.info(`[Admin] KYC rejected: ${doc.client.email} — ${reason}`)
+
+    return reply.success({
+      id: doc.id,
+      status: 'rejected',
+      message: `KYC ${doc.client.email} ditolak.`,
+    })
+  })
+
+  // ══════════════════════════════════════════════════════════
+  // DISBURSEMENT MONITORING
+  // ══════════════════════════════════════════════════════════
+
+  // ── GET /admin/disbursements/stats ───────────────────────
+  // Revenue stats: deposits, unique codes, fees, disbursements
+  fastify.get('/disbursements/stats', async (request, reply) => {
+    const [
+      // Deposit stats
+      totalDeposits,
+      doneDeposits,
+      uniqueCodeRevenue,
+      // Disbursement stats
+      totalDisbursements,
+      successDisbursements,
+      failedDisbursements,
+      pendingDisbursements,
+      feeRevenue,
+      totalDisbursedAmount,
+      // User stats
+      activeUsers,
+    ] = await Promise.all([
+      db.disbursementDeposit.count(),
+      db.disbursementDeposit.count({ where: { status: 'done' } }),
+      db.disbursementDeposit.aggregate({
+        where: { status: 'done' },
+        _sum: { uniqueCode: true, amount: true },
+      }),
+      db.disbursement.count(),
+      db.disbursement.count({ where: { status: 'success' } }),
+      db.disbursement.count({ where: { status: 'failed' } }),
+      db.disbursement.count({ where: { status: { in: ['pending', 'processing'] } } }),
+      db.disbursement.aggregate({
+        where: { status: 'success' },
+        _sum: { fee: true },
+      }),
+      db.disbursement.aggregate({
+        where: { status: 'success' },
+        _sum: { amount: true },
+      }),
+      db.disbursementBalance.count(),
+    ])
+
+    return reply.success({
+      deposits: {
+        total: totalDeposits,
+        done: doneDeposits,
+        total_deposited: Number(uniqueCodeRevenue._sum.amount || 0),
+        unique_code_revenue: Number(uniqueCodeRevenue._sum.uniqueCode || 0),
+      },
+      disbursements: {
+        total: totalDisbursements,
+        success: successDisbursements,
+        failed: failedDisbursements,
+        pending: pendingDisbursements,
+        total_disbursed: Number(totalDisbursedAmount._sum.amount || 0),
+        fee_revenue: Number(feeRevenue._sum.fee || 0),
+      },
+      platform_revenue: Number(uniqueCodeRevenue._sum.uniqueCode || 0) + Number(feeRevenue._sum.fee || 0),
+      active_users: activeUsers,
+    })
+  })
+
+  // ── GET /admin/disbursements ────────────────────────────
+  // Monitor all disbursements across all clients
+  fastify.get('/disbursements', {
+    schema: {
+      querystring: {
+        type: 'object',
+        properties: {
+          page: { type: 'integer', minimum: 1, default: 1 },
+          per_page: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
+          status: { type: 'string', enum: ['pending', 'processing', 'success', 'failed'] },
+          client_id: { type: 'string' },
+        }
+      }
+    }
+  }, async (request, reply) => {
+    const { page = 1, per_page = 20, status, client_id } = request.query
+
+    const where = {
+      ...(status && { status }),
+      ...(client_id && { clientId: client_id }),
+    }
+
+    const [disbursements, total] = await Promise.all([
+      db.disbursement.findMany({
+        where,
+        include: {
+          client: { select: { id: true, name: true, email: true } }
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * per_page,
+        take: per_page,
+      }),
+      db.disbursement.count({ where })
+    ])
+
+    const mapped = disbursements.map(d => ({
+      id: d.id,
+      client_id: d.clientId,
+      client_name: d.client.name,
+      client_email: d.client.email,
+      amount: Number(d.amount),
+      fee: Number(d.fee),
+      total_deducted: Number(d.totalDeducted),
+      destination_bank: d.destinationBank,
+      destination_account: d.destinationAccount,
+      destination_name: d.destinationName,
+      status: d.status,
+      failure_reason: d.failureReason,
+      flip_trx_id: d.flipTrxId,
+      source: d.source,
+      note: d.note,
+      created_at: d.createdAt,
+      processed_at: d.processedAt,
+    }))
+
+    return reply.paginated(mapped, {
+      page, per_page, total, total_pages: Math.ceil(total / per_page)
+    })
+  })
+
+  // ── POST /admin/disbursements/:id/retry ─────────────────
+  // Retry a failed disbursement
+  fastify.post('/disbursements/:id/retry', async (request, reply) => {
+    const disbursement = await db.disbursement.findUnique({
+      where: { id: request.params.id }
+    })
+
+    if (!disbursement) return reply.fail('DISBURSEMENT_NOT_FOUND', 'Disbursement tidak ditemukan', 404)
+    if (disbursement.status !== 'failed') {
+      return reply.fail('VALIDATION_ERROR', `Hanya disbursement dengan status "failed" yang bisa di-retry. Status saat ini: ${disbursement.status}`, 422)
+    }
+
+    // Re-deduct balance (karena markDisbursementFailed sudah refund)
+    const balance = await db.disbursementBalance.findUnique({
+      where: { clientId: disbursement.clientId }
+    })
+
+    if (!balance || Number(balance.balance) < Number(disbursement.totalDeducted)) {
+      return reply.fail('INSUFFICIENT_BALANCE', `Saldo user tidak cukup untuk retry. Perlu Rp ${Number(disbursement.totalDeducted).toLocaleString('id-ID')}`, 422)
+    }
+
+    // Atomic: potong saldo + reset status
+    await db.$transaction([
+      db.disbursementBalance.update({
+        where: { clientId: disbursement.clientId },
+        data: {
+          balance:        { decrement: Number(disbursement.totalDeducted) },
+          totalDisbursed: { increment: Number(disbursement.amount) },
+          totalFees:      { increment: Number(disbursement.fee) },
+        }
+      }),
+      db.disbursement.update({
+        where: { id: disbursement.id },
+        data: { status: 'pending', failureReason: null, flipTrxId: null }
+      }),
+    ])
+
+    // Re-queue
+    try {
+      await flipQueue.add('disbursement-transfer', {
+        disbursementId: disbursement.id,
+        triggeredBy: 'admin_retry',
+      })
+    } catch (e) {
+      fastify.log.error(`[Admin] Failed to re-queue disbursement: ${e.message}`)
+    }
+
+    fastify.log.info(`[Admin] Disbursement ${disbursement.id} retried`)
+
+    return reply.success({
+      id: disbursement.id,
+      status: 'pending',
+      message: 'Disbursement di-retry dan akan segera diproses.',
+    })
+  })
+
+  // ── POST /admin/disbursement-deposit ────────────────────
+  // Admin manually adds disbursement balance to a client
+  fastify.post('/disbursement-deposit', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['client_id', 'amount'],
+        properties: {
+          client_id: { type: 'string' },
+          amount: { type: 'number', minimum: 1 },
+          note: { type: 'string', maxLength: 255 },
+        }
+      }
+    }
+  }, async (request, reply) => {
+    const { client_id, amount, note } = request.body
+
+    const client = await db.client.findUnique({ where: { id: client_id } })
+    if (!client) return reply.fail('NOT_FOUND', 'Client tidak ditemukan', 404)
+    if (client.role !== 'disbursement_user') {
+      return reply.fail('VALIDATION_ERROR', 'Client bukan disbursement_user', 422)
+    }
+
+    await db.disbursementBalance.upsert({
+      where: { clientId: client_id },
+      create: {
+        clientId: client_id,
+        balance: amount,
+        totalDeposited: amount,
+      },
+      update: {
+        balance: { increment: amount },
+        totalDeposited: { increment: amount },
+      }
+    })
+
+    fastify.log.info(`[Admin] Manual deposit: ${client.email} +Rp ${amount} ${note ? `(${note})` : ''}`)
+
+    return reply.success({
+      client_id,
+      amount,
+      message: `Saldo disbursement ${client.email} bertambah Rp ${amount.toLocaleString('id-ID')}`,
     })
   })
 }

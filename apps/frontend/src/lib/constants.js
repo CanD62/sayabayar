@@ -15,6 +15,7 @@ export const SUPPORTED_BANKS = [
   { code: 'bri', name: 'BRI', popular: true, isEwallet: false },
   { code: 'mandiri', name: 'Mandiri', popular: true, isEwallet: false },
   { code: 'bni', name: 'BNI', popular: true, isEwallet: false },
+  { code: 'kesejahteraan_ekonomi', name: 'SeaBank/Bank BKE', popular: true, isEwallet: false },
   // ── Bank Lainnya (alfabet) ────────────────────────────────
   { code: 'bjb', name: 'BJB (Bank Jabar Banten)', popular: false, isEwallet: false },
   { code: 'bsm', name: 'BSI (Bank Syariah Indonesia)', popular: false, isEwallet: false },
@@ -27,9 +28,9 @@ export const SUPPORTED_BANKS = [
   { code: 'muamalat', name: 'Bank Muamalat', popular: false, isEwallet: false },
   { code: 'permata', name: 'Bank Permata', popular: false, isEwallet: false },
   // ── E-Wallet ──────────────────────────────────────────────
-  { code: 'dana', name: 'DANA', popular: false, isEwallet: true },
-  { code: 'gopay', name: 'GoPay', popular: false, isEwallet: true },
-  { code: 'linkaja', name: 'LinkAja', popular: false, isEwallet: true },
-  { code: 'ovo', name: 'OVO', popular: false, isEwallet: true },
-  { code: 'shopeepay', name: 'ShopeePay', popular: false, isEwallet: true },
+  // { code: 'dana', name: 'DANA', popular: false, isEwallet: true },
+  // { code: 'gopay', name: 'GoPay', popular: false, isEwallet: true },
+  // { code: 'linkaja', name: 'LinkAja', popular: false, isEwallet: true },
+  // { code: 'ovo', name: 'OVO', popular: false, isEwallet: true },
+  // { code: 'shopeepay', name: 'ShopeePay', popular: false, isEwallet: true },
 ]

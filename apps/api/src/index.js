@@ -10,6 +10,7 @@ import { getDb, disconnectDb } from '@payment-gateway/shared/db'
 // Plugins
 import { redisPlugin } from './plugins/redis.js'
 import { responseFormatter } from './plugins/responseFormatter.js'
+import { minioRegistration } from './plugins/minio.js'
 
 // Routes
 import { authRoutes } from './routes/auth.js'
@@ -23,6 +24,8 @@ import { payRoutes } from './routes/pay.js'
 import { subscriptionRoutes } from './routes/subscriptions.js'
 import { lookupRoutes } from './routes/lookup.js'
 import { adminRoutes } from './routes/admin.js'
+import { kycRoutes } from './routes/kyc.js'
+import { disbursementRoutes } from './routes/disbursements.js'
 
 const PORT = parseInt(process.env.API_PORT || '3001')
 
@@ -127,6 +130,16 @@ async function buildApp() {
   // ── Custom Plugins ────────────────────────────────────────
   await app.register(redisPlugin)
   await app.register(responseFormatter)
+  await app.register(minioRegistration)
+
+  // ── Multipart support (for KYC file uploads) ──────────────
+  const multipart = await import('@fastify/multipart')
+  await app.register(multipart.default || multipart, {
+    limits: {
+      fileSize: 5 * 1024 * 1024, // 5MB max
+      files: 2, // max 2 files (KTP + selfie)
+    }
+  })
 
   // ── Prisma DB ─────────────────────────────────────────────
   const db = getDb()
@@ -144,6 +157,8 @@ async function buildApp() {
   await app.register(subscriptionRoutes, { prefix: '/v1/subscriptions' })
   await app.register(lookupRoutes,       { prefix: '/v1/lookup' })
   await app.register(adminRoutes,        { prefix: '/v1/admin' })
+  await app.register(kycRoutes,          { prefix: '/v1/kyc' })
+  await app.register(disbursementRoutes, { prefix: '/v1/disbursements' })
 
   // ── Health Check ──────────────────────────────────────────
   app.get('/health', async () => ({

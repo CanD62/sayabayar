@@ -150,3 +150,54 @@ export async function isAdmin(request, reply) {
     return reply.fail('FORBIDDEN', 'Akses hanya untuk admin platform', 403)
   }
 }
+
+/**
+ * Disbursement access middleware — must run AFTER authenticate
+ * Checks: role = disbursement_user + KYC approved
+ */
+export async function requireDisbursementAccess(request, reply) {
+  const client = request.client
+  if (!client) {
+    return reply.fail('UNAUTHORIZED', 'Not authenticated', 401)
+  }
+
+  // 1. Cek role
+  if (client.role !== 'disbursement_user') {
+    return reply.fail(
+      'DISBURSEMENT_ROLE_REQUIRED',
+      'Akun Anda belum memiliki akses fitur Disbursement. Hubungi admin untuk upgrade.',
+      403
+    )
+  }
+
+  // 2. Cek KYC approved
+  const kyc = await request.server.db.kycDocument.findUnique({
+    where: { clientId: client.id }
+  })
+
+  if (!kyc) {
+    return reply.fail(
+      'DISBURSEMENT_KYC_REQUIRED',
+      'Anda perlu menyelesaikan verifikasi KYC sebelum menggunakan fitur Disbursement.',
+      403
+    )
+  }
+
+  if (kyc.status === 'pending') {
+    return reply.fail(
+      'DISBURSEMENT_KYC_PENDING',
+      'Verifikasi KYC Anda sedang dalam proses review. Mohon tunggu.',
+      403
+    )
+  }
+
+  if (kyc.status === 'rejected') {
+    return reply.fail(
+      'DISBURSEMENT_KYC_REQUIRED',
+      `KYC ditolak: ${kyc.rejectionReason || 'Silakan submit ulang dokumen KYC.'}`,
+      403
+    )
+  }
+
+  request.kycDocument = kyc
+}

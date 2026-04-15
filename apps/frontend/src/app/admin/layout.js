@@ -17,6 +17,8 @@ const ADMIN_NAV = [
   { href: '/admin/invoices',     label: 'Invoice',      icon: Receipt },
   { href: '/admin/transactions', label: 'Transaksi',    icon: ArrowLeftRight },
   { href: '/admin/withdrawals',  label: 'Withdrawal',   icon: Wallet },
+  { href: '/admin/kyc',          label: 'KYC Review',   icon: ShieldCheck },
+  { href: '/admin/disbursements',label: 'Disbursement', icon: Send },
   { href: '/admin/channels',     label: 'Channel',      icon: Building2 },
   { href: '/admin/scraping-logs',label: 'Scraping Log',  icon: Activity },
   { href: '/admin/ledger',       label: 'Ledger',       icon: BookOpen },

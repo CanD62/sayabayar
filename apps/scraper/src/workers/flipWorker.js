@@ -42,8 +42,15 @@ async function getAlaflipWebviewUrl(token, userId) {
 
 export function startFlipWorker() {
   const worker = new Worker('flip', async (job) => {
-    const { withdrawalId, triggeredBy } = job.data
     const db = getDb()
+
+    // ── Route by job name ───────────────────────────────
+    if (job.name === 'disbursement-transfer') {
+      return handleDisbursementTransfer(job, db)
+    }
+
+    // ── Default: withdrawal processing ──────────────────
+    const { withdrawalId, triggeredBy } = job.data
 
     console.log(`[FlipWorker] Processing withdrawal ${withdrawalId} (triggered by: ${triggeredBy})`)
 
@@ -247,3 +254,184 @@ async function markFailed(db, withdrawalId, reason) {
     console.error(`[FlipWorker] Failed to mark withdrawal ${withdrawalId} as failed:`, err.message)
   }
 }
+
+// ═══════════════════════════════════════════════════════════
+// DISBURSEMENT TRANSFER HANDLER
+// ═══════════════════════════════════════════════════════════
+async function handleDisbursementTransfer(job, db) {
+  const { disbursementId, triggeredBy } = job.data
+
+  console.log(`[FlipWorker] Processing disbursement ${disbursementId} (triggered by: ${triggeredBy})`)
+
+  // ── Ambil disbursement ────────────────────────────────
+  const disbursement = await db.disbursement.findUnique({
+    where: { id: disbursementId }
+  })
+
+  if (!disbursement) {
+    console.error(`[FlipWorker] Disbursement ${disbursementId} not found`)
+    return { skipped: true, reason: 'not_found' }
+  }
+
+  if (!['pending', 'failed'].includes(disbursement.status)) {
+    console.log(`[FlipWorker] Disbursement ${disbursementId} status "${disbursement.status}" — skip`)
+    return { skipped: true, reason: 'invalid_status' }
+  }
+
+  // ── Mark as processing ────────────────────────────────
+  await db.disbursement.update({
+    where: { id: disbursementId },
+    data: { status: 'processing' }
+  })
+
+  // ── Get provider & token ──────────────────────────────
+  const provider = await db.paymentProvider.findUnique({
+    where: { providerName: 'flip' }
+  })
+
+  if (!provider) {
+    await markDisbursementFailed(db, disbursement, 'PaymentProvider "flip" belum dikonfigurasi')
+    throw new Error('PaymentProvider tidak ditemukan')
+  }
+
+  let token
+  try {
+    const now = new Date()
+    const isExpired = !provider.tokenExpiresAt || provider.tokenExpiresAt <= now
+
+    if (isExpired) {
+      console.log('[FlipWorker] Token expired — refreshing for disbursement...')
+      const currentToken = decrypt(provider.token)
+      const refreshRes = await flipClient.refreshToken(currentToken)
+
+      if (!refreshRes?.data?.token) throw new Error('Gagal refresh token Flip')
+
+      token = refreshRes.data.token
+      const expiresAt = new Date(Date.now() + (24 - 0.5) * 60 * 60 * 1000)
+
+      await db.paymentProvider.update({
+        where: { providerName: 'flip' },
+        data: { token: encrypt(token), tokenExpiresAt: expiresAt }
+      })
+    } else {
+      token = decrypt(provider.token)
+    }
+  } catch (err) {
+    await markDisbursementFailed(db, disbursement, `Token refresh gagal: ${err.message}`)
+    throw err
+  }
+
+  const pin = decrypt(provider.pin)
+  const userId = provider.userId
+
+  try {
+    // ── Step 1: Get challenge token ──────────────────────
+    console.log(`[FlipWorker] Getting disbursement challenge for ${disbursementId}...`)
+    let challengeRes = await flipClient.getTokenTransfer(
+      Math.round(Number(disbursement.amount)),
+      token
+    )
+
+    // Auto-activate Alaflip if needed
+    if (isAlaflipInactive(challengeRes)) {
+      console.log(`[FlipWorker] Alaflip inactive — auto-activating for disbursement...`)
+      const { url: webviewUrl, deviceId: devId } = await getAlaflipWebviewUrl(token, userId)
+      await flipBrowser.activateAlaflip(webviewUrl, decrypt(provider.pin), devId)
+
+      challengeRes = await flipClient.getTokenTransfer(
+        Math.round(Number(disbursement.amount)),
+        token
+      )
+
+      if (isAlaflipInactive(challengeRes)) {
+        throw new Error('Alaflip masih tidak aktif setelah re-aktivasi')
+      }
+    }
+
+    if (!challengeRes?.data?.challenge_url) {
+      throw new Error(`Gagal mendapatkan challenge URL: ${JSON.stringify(challengeRes)}`)
+    }
+
+    // ── Step 2: PIN input via browser ────────────────────
+    const pinResponse = await flipBrowser.inputPin(
+      challengeRes.data.challenge_url,
+      pin,
+      challengeRes.data.headers || {}
+    )
+
+    // ── Step 3: Execute transfer ─────────────────────────
+    console.log(`[FlipWorker] Executing disbursement transfer ${disbursementId}...`)
+    const transferRes = await flipClient.transferBank({
+      accountNumber:   disbursement.destinationAccount,
+      beneficiaryBank: disbursement.destinationBank,
+      amount:          Number(disbursement.amount),
+      beneficiaryName: disbursement.destinationName,
+      nonce:           pinResponse.nonce,
+      referenceId:     pinResponse.partner_reference_no,
+      idempotencyKey:  disbursement.idempotencyKey,
+    }, token)
+
+    const trxId = transferRes?.id || transferRes?.data?.id
+    if (!trxId) throw new Error(`Transfer response tidak valid: ${JSON.stringify(transferRes)}`)
+
+    // ── Step 4: Mark as success ──────────────────────────
+    await db.disbursement.update({
+      where: { id: disbursementId },
+      data: {
+        status: 'success',
+        flipTrxId: String(trxId),
+        processedAt: new Date(),
+        failureReason: null,
+      }
+    })
+
+    // Update Flip provider balance (fire & forget)
+    if (userId) {
+      flipClient.saldoAladin(userId, token)
+        .then(res => {
+          const b = res?.data?.balance
+          if (b !== undefined) {
+            db.paymentProvider.update({ where: { providerName: 'flip' }, data: { balance: b } }).catch(() => {})
+          }
+        })
+        .catch(() => {})
+    }
+
+    console.log(`[FlipWorker] ✅ Disbursement ${disbursementId} success — Flip ID: ${trxId}`)
+    return { success: true, flipTrxId: String(trxId) }
+
+  } catch (err) {
+    console.error(`[FlipWorker] ❌ Disbursement ${disbursementId} failed: ${err.message}`)
+    await markDisbursementFailed(db, disbursement, err.message)
+    throw err
+  }
+}
+
+// ── Helper: mark disbursement as failed + refund balance ────
+async function markDisbursementFailed(db, disbursement, reason) {
+  try {
+    await db.$transaction([
+      // Mark as failed
+      db.disbursement.update({
+        where: { id: disbursement.id },
+        data: {
+          status: 'failed',
+          failureReason: reason?.slice(0, 500),
+        }
+      }),
+      // Refund saldo ke DisbursementBalance
+      db.disbursementBalance.update({
+        where: { clientId: disbursement.clientId },
+        data: {
+          balance:        { increment: Number(disbursement.totalDeducted) },
+          totalDisbursed: { decrement: Number(disbursement.amount) },
+          totalFees:      { decrement: Number(disbursement.fee) },
+        }
+      }),
+    ])
+    console.log(`[FlipWorker] Disbursement ${disbursement.id} refunded: +Rp ${disbursement.totalDeducted}`)
+  } catch (err) {
+    console.error(`[FlipWorker] Failed to mark disbursement ${disbursement.id} as failed:`, err.message)
+  }
+}
+

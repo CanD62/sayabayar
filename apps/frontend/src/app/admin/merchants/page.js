@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react'
 import { api } from '@/lib/api'
 import { useToast } from '@/components/Toast'
-import { Search, X, UserCheck, UserX, Star, ChevronRight } from 'lucide-react'
+import { Search, X, UserCheck, UserX, Star, ChevronRight, ShieldCheck, Send, Loader2 } from 'lucide-react'
 import AdminTable from '@/components/AdminTable'
 
 const fmt = (n) => new Intl.NumberFormat('id-ID').format(Math.round(n))
@@ -15,6 +15,17 @@ const STATUS_BADGE = {
 const PLAN_BADGE = {
   free:         { label: 'Gratis',   cls: 'badge-info' },
   subscription: { label: 'Berbayar', cls: 'badge-success' },
+}
+
+const ROLE_BADGE = {
+  merchant:          { label: 'Merchant', cls: 'badge-info' },
+  disbursement_user: { label: 'Disbursement', cls: 'badge-success' },
+}
+
+const KYC_BADGE = {
+  pending:  { label: 'KYC Menunggu', cls: 'badge-warning' },
+  approved: { label: 'KYC ✓', cls: 'badge-success' },
+  rejected: { label: 'KYC Ditolak', cls: 'badge-danger' },
 }
 
 export default function AdminMerchantsPage() {
@@ -31,6 +42,7 @@ export default function AdminMerchantsPage() {
   const [detailLoading, setDetailLoading] = useState(false)
   const [actionLoading, setActionLoading] = useState(false)
   const [showPlanModal, setShowPlanModal] = useState(false)
+  const [roleLoading, setRoleLoading] = useState(false)
   const PER_PAGE = 20
 
   const load = async (p = page) => {
@@ -82,6 +94,19 @@ export default function AdminMerchantsPage() {
       load()
     } catch (e) { toast.error(e.message) }
     finally { setActionLoading(false) }
+  }
+
+  const toggleRole = async () => {
+    if (!selected) return
+    const newRole = selected.role === 'disbursement_user' ? 'merchant' : 'disbursement_user'
+    setRoleLoading(true)
+    try {
+      await api.patch(`/v1/admin/clients/${selected.id}/role`, { role: newRole })
+      toast.success(`Role diubah ke ${newRole === 'disbursement_user' ? 'Disbursement User' : 'Merchant'}`)
+      setSelected(s => ({ ...s, role: newRole }))
+      load()
+    } catch (e) { toast.error(e.message) }
+    finally { setRoleLoading(false) }
   }
 
   const totalPages = Math.ceil(total / PER_PAGE)
@@ -230,9 +255,43 @@ export default function AdminMerchantsPage() {
                   </div>
                 )}
 
+                {/* Role & KYC section */}
+                <div style={{ marginBottom: 16 }}>
+                  <div className="admin-section-label">Role & KYC</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                    <div style={{ padding: '8px 12px', background: 'rgba(255,255,255,0.03)', borderRadius: 8, fontSize: '0.82rem' }}>
+                      <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', marginBottom: 2 }}>Role</div>
+                      <span className={`badge ${ROLE_BADGE[selected.role]?.cls || ''}`}>{ROLE_BADGE[selected.role]?.label || selected.role}</span>
+                    </div>
+                    <div style={{ padding: '8px 12px', background: 'rgba(255,255,255,0.03)', borderRadius: 8, fontSize: '0.82rem' }}>
+                      <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', marginBottom: 2 }}>KYC</div>
+                      {selected.kyc ? (
+                        <span className={`badge ${KYC_BADGE[selected.kyc.status]?.cls || ''}`}>{KYC_BADGE[selected.kyc.status]?.label || '—'}</span>
+                      ) : (
+                        <span style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>Belum submit</span>
+                      )}
+                    </div>
+                  </div>
+                  {selected.disbursement_balance && (
+                    <div style={{ marginTop: 8, padding: '10px 12px', background: 'rgba(16,185,129,0.05)', borderRadius: 8, border: '1px solid rgba(16,185,129,0.1)' }}>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: 4 }}>Saldo Disbursement</div>
+                      <div style={{ fontWeight: 800, fontSize: '1rem', color: '#10b981', fontFamily: 'monospace' }}>Rp {fmt(selected.disbursement_balance.balance)}</div>
+                      <div style={{ display: 'flex', gap: 12, marginTop: 4, fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+                        <span>Deposited: Rp {fmt(selected.disbursement_balance.total_deposited)}</span>
+                        <span>Disbursed: Rp {fmt(selected.disbursement_balance.total_disbursed)}</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 <div className="modal-actions">
                   <button className="btn btn-ghost" onClick={() => setShowPlanModal(true)}>
                     <Star size={14} /> Ganti Plan
+                  </button>
+                  <button className="btn" onClick={toggleRole} disabled={roleLoading}
+                    style={{ background: 'rgba(99,102,241,0.1)', color: '#818cf8', border: '1px solid rgba(99,102,241,0.2)' }}>
+                    {roleLoading ? <Loader2 size={14} className="spin" /> : <Send size={14} />}
+                    {selected.role === 'disbursement_user' ? 'Downgrade ke Merchant' : 'Upgrade ke Disbursement'}
                   </button>
                   <button className={`btn ${selected.status === 'active' ? 'btn-danger' : 'btn-primary'}`} onClick={toggleStatus} disabled={actionLoading}>
                     {selected.status === 'active' ? <><UserX size={14} /> Suspend</> : <><UserCheck size={14} /> Aktifkan</>}

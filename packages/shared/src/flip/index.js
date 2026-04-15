@@ -125,13 +125,22 @@ export async function getAlaflipStatus(userId, token) {
   return body?.data?.status
 }
 
-/** GET saldo Aladin */
+/** GET saldo Aladin — returns balance number */
 export async function getAlaflipBalance(userId, token) {
   const res = await fetch(`${FLIP_URLS.alaflipBalance}/${userId}/balance`, {
     method: 'GET', headers: custHeaders(token)
   })
   const body = await parseResponse(res)
   return body?.data?.balance
+}
+
+/** GET saldo Aladin (full) — returns { balance, account_id, account_name, ... } */
+export async function getAlaflipBalanceFull(userId, token) {
+  const res = await fetch(`${FLIP_URLS.alaflipBalance}/${userId}/balance`, {
+    method: 'GET', headers: custHeaders(token)
+  })
+  const body = await parseResponse(res)
+  return body?.data || null
 }
 
 /** POST webview-url untuk linkage/aktivasi */
