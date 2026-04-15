@@ -24,8 +24,8 @@ function getTransporter() {
   // Mailcow sebagai SMTP relay — DKIM signing dilakukan otomatis di level server.
   // Tidak perlu konfigurasi DKIM di nodemailer.
   _transporter = nodemailer.createTransport({
-    host:   process.env.SMTP_HOST,
-    port:   parseInt(process.env.SMTP_PORT || '587'),
+    host: process.env.SMTP_HOST,
+    port: parseInt(process.env.SMTP_PORT || '587'),
     secure: parseInt(process.env.SMTP_PORT || '587') === 465,
     // 'name' dipakai sebagai EHLO hostname saat connect ke Mailcow.
     // Tanpa ini, Nodemailer fallback ke hostname OS (127.0.0.1) yang
@@ -374,12 +374,13 @@ function buildResetPasswordEmail(name, resetUrl) {
  * Kirim email verifikasi ke user baru
  */
 export async function sendVerificationEmail(email, name, token) {
-  const verifyUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/verify-email?token=${token}`
+  const frontendBaseUrl = (process.env.FRONTEND_URL || 'http://localhost:3000').replace(/["']/g, '').split(/[\s,]+/).map(o => o.trim().replace(/\/$/, '')).filter(Boolean)[0]
+  const verifyUrl = `${frontendBaseUrl}/verify-email?token=${token}`
   const { html, text } = buildVerificationEmail(name, verifyUrl)
 
   await getTransporter().sendMail({
-    from:    getSenderFrom(),
-    to:      email,
+    from: getSenderFrom(),
+    to: email,
     subject: `Konfirmasi Email Anda — SayaBayar`,
     text,
     html,
@@ -393,12 +394,13 @@ export async function sendVerificationEmail(email, name, token) {
  * Kirim email reset password
  */
 export async function sendPasswordResetEmail(email, name, token) {
-  const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/reset-password?token=${token}`
+  const frontendBaseUrl = (process.env.FRONTEND_URL || 'http://localhost:3000').replace(/["']/g, '').split(/[\s,]+/).map(o => o.trim().replace(/\/$/, '')).filter(Boolean)[0]
+  const resetUrl = `${frontendBaseUrl}/reset-password?token=${token}`
   const { html, text } = buildResetPasswordEmail(name, resetUrl)
 
   await getTransporter().sendMail({
-    from:    getSenderFrom(),
-    to:      email,
+    from: getSenderFrom(),
+    to: email,
     subject: `Permintaan Reset Password — SayaBayar`,
     text,
     html,
