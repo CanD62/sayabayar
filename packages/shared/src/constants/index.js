@@ -254,10 +254,10 @@ export const WITHDRAW = {
 export const DISBURSEMENT = {
   MIN_AMOUNT: 10_000,
   MIN_DEPOSIT: 50_000,
-  // Fee berjenjang: < 100k → Rp 2.500, >= 100k → Rp 3.000
-  FEE_LOW: 2_500,   // transfer < Rp 100.000
-  FEE_HIGH: 3_000,   // transfer >= Rp 100.000
-  FEE_THRESHOLD: 100_000,
+  // Fee berjenjang: < 100k → Rp 2.500, >= 250k → Rp 3.000
+  FEE_LOW: 2_500,   // transfer < Rp 250.000
+  FEE_HIGH: 3_000,   // transfer >= Rp 250.000
+  FEE_THRESHOLD: 250_000,
   /** @deprecated pakai getFee(amount) */
   DEFAULT_FEE: 2_500,
 }
