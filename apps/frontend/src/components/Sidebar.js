@@ -1,10 +1,12 @@
 'use client'
 import { useAuth } from '@/lib/AuthContext'
+import { useTheme } from '@/lib/ThemeContext'
 import { usePathname } from 'next/navigation'
 import Link from 'next/link'
 import {
   LayoutDashboard, FileText, Building2, Wallet,
-  Star, Link2, KeyRound, UserCog, LogOut, Menu, ShieldCheck, Send
+  Star, Link2, KeyRound, UserCog, LogOut, Menu, ShieldCheck, Send,
+  Sun, Moon
 } from 'lucide-react'
 import LogoIcon from '@/components/LogoIcon'
 
@@ -22,6 +24,7 @@ const NAV_ITEMS = [
 
 export default function Sidebar({ isOpen, onClose }) {
   const { user, logout } = useAuth()
+  const { theme, toggleTheme } = useTheme()
   const pathname = usePathname()
 
   const initials = user?.name?.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() || '?'
@@ -67,6 +70,27 @@ export default function Sidebar({ isOpen, onClose }) {
         </nav>
 
         <div className="sidebar-footer">
+          {/* Theme Toggle */}
+          <button
+            id="theme-toggle-btn"
+            className="theme-toggle-btn"
+            onClick={toggleTheme}
+            title={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+            aria-label="Toggle color theme"
+          >
+            {theme === 'dark' ? (
+              <>
+                <Sun size={14} />
+                <span>Light Mode</span>
+              </>
+            ) : (
+              <>
+                <Moon size={14} />
+                <span>Dark Mode</span>
+              </>
+            )}
+          </button>
+
           <div className="sidebar-user">
             <div className="sidebar-user-avatar">{initials}</div>
             <div className="sidebar-user-info">

@@ -2,6 +2,7 @@ import './globals.css'
 import { AuthProvider } from '@/lib/AuthContext'
 import { ToastProvider } from '@/components/Toast'
 import WhatsAppButton from '@/components/WhatsAppButton'
+import { ThemeProvider } from '@/lib/ThemeContext'
 
 const SITE_URL = 'https://sayabayar.com'
 
@@ -31,13 +32,16 @@ export default function RootLayout({ children }) {
   return (
     <html lang="id">
       <body>
-        <AuthProvider>
-          <ToastProvider>
-            {children}
-            <WhatsAppButton />
-          </ToastProvider>
-        </AuthProvider>
+        <ThemeProvider>
+          <AuthProvider>
+            <ToastProvider>
+              {children}
+              <WhatsAppButton />
+            </ToastProvider>
+          </AuthProvider>
+        </ThemeProvider>
       </body>
     </html>
   )
 }
+

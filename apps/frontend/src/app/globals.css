@@ -4,7 +4,7 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
 :root {
-  /* Colors — Emerald Fintech (Warm) */
+  /* Colors — Emerald Fintech Dark (Default) */
   --bg-primary: #0d0e12;
   --bg-secondary: #13151b;
   --bg-card: #1a1c24;
@@ -50,6 +50,48 @@
   --radius-xl: 20px;
 }
 
+/* ── Light Mode Token Overrides ──────────────────────────────────── */
+[data-theme="light"] {
+  /* Backgrounds — clean white / warm off-white */
+  --bg-primary: #f1f5f9;
+  --bg-secondary: #ffffff;
+  --bg-card: #ffffff;
+  --bg-card-hover: #f0fdf9;
+  --bg-input: #f8fafc;
+  --border: #e2e8f0;
+  --border-focus: #10b981;
+
+  /* Text — slate family for premium feel */
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #94a3b8;
+
+  /* Accent stays emerald — brand identity */
+  --accent: #059669;
+  --accent-hover: #047857;
+  --accent-subtle: rgba(5, 150, 105, 0.08);
+
+  /* Status colors — slightly more saturated on light */
+  --success: #059669;
+  --success-bg: rgba(5, 150, 105, 0.08);
+  --warning: #d97706;
+  --warning-bg: rgba(217, 119, 6, 0.08);
+  --danger: #dc2626;
+  --danger-bg: rgba(220, 38, 38, 0.08);
+  --info: #0891b2;
+  --info-bg: rgba(8, 145, 178, 0.08);
+
+  /* Gradients */
+  --gradient-primary: linear-gradient(135deg, #059669 0%, #0891b2 100%);
+  --gradient-card: linear-gradient(135deg, rgba(5, 150, 105, 0.04) 0%, rgba(8, 145, 178, 0.04) 100%);
+
+  /* Shadows — softer, slate-tinted instead of black */
+  --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.06);
+  --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.10);
+  --shadow-lg: 0 10px 30px rgba(15, 23, 42, 0.14);
+  --shadow-glow: 0 0 24px rgba(5, 150, 105, 0.18);
+}
+
 * {
   box-sizing: border-box;
   margin: 0;
@@ -69,6 +111,13 @@ body {
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   min-height: 100vh;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* Light mode body gradient tweak */
+[data-theme="light"] body,
+[data-theme="light"] {
+  background-image: radial-gradient(ellipse at 50% 0%, rgba(5, 150, 105, 0.05) 0%, transparent 60%);
 }
 
 a {
@@ -88,10 +137,10 @@ a:hover {
 
 .sidebar {
   width: 260px;
-  background: rgba(19, 21, 27, 0.85);
+  background: var(--bg-secondary);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  border-right: 1px solid rgba(40, 44, 54, 0.6);
+  border-right: 1px solid var(--border);
   padding: 24px 16px;
   display: flex;
   flex-direction: column;
@@ -100,6 +149,7 @@ a:hover {
   left: 0;
   bottom: 0;
   z-index: 100;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
 }
 
 .sidebar-logo {
@@ -166,6 +216,35 @@ a:hover {
   margin-top: auto;
 }
 
+/* ── Theme Toggle Button ─────────────────────────────── */
+.theme-toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-card-hover);
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 600;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  margin-bottom: 8px;
+  transition: all 0.2s ease;
+}
+
+.theme-toggle-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-subtle);
+}
+
+.theme-toggle-btn svg {
+  flex-shrink: 0;
+}
+
 .sidebar-user {
   display: flex;
   align-items: center;
@@ -227,13 +306,12 @@ a:hover {
 
 /* ── Cards ───────────────────────────────────────────── */
 .card {
-  background: rgba(26, 28, 36, 0.7);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: 24px;
   transition: all 0.3s ease;
+  box-shadow: var(--shadow-sm);
 }
 
 .card:hover {
@@ -264,15 +342,14 @@ a:hover {
 }
 
 .stat-card {
-  background: rgba(26, 28, 36, 0.7);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: 20px;
   position: relative;
   overflow: hidden;
   transition: all 0.3s ease;
+  box-shadow: var(--shadow-sm);
 }
 
 .stat-card:hover {

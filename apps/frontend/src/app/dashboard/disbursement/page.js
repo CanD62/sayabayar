@@ -225,7 +225,7 @@ function DepositModal({ open, onClose, onSuccess }) {
                 ✅ Deposit berhasil dibuat! Transfer sesuai detail berikut:
               </div>
             )}
-            <div style={{ padding: '12px 16px', borderRadius: 12, marginBottom: 16, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)' }}>
+            <div style={{ padding: '12px 16px', borderRadius: 12, marginBottom: 16, background: 'var(--bg-card-hover)', border: '1px solid var(--border)' }}>
               <DetailRow label="Bank Tujuan" value={rb?.bank?.toUpperCase() || '-'} />
               <DetailRow label="No. Rekening" value={rb?.account_number || '-'} copiable onCopy={() => copyText(rb?.account_number, 'rek')} isCopied={copied === 'rek'} />
               <DetailRow label="Atas Nama" value={rb?.name || '-'} />
@@ -281,7 +281,7 @@ function DetailRow({ label, value, bold, accent, copiable, onCopy, isCopied }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <span style={{ fontWeight: bold ? 800 : accent ? 700 : 600, fontSize: bold ? '1.05rem' : '0.85rem', color: accent ? '#f59e0b' : bold ? '#10b981' : 'var(--text-primary)', fontFamily: 'monospace' }}>{value}</span>
         {copiable && (
-          <button onClick={onCopy} style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border)', borderRadius: 6, padding: 4, cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', alignItems: 'center' }} title="Salin">
+          <button onClick={onCopy} style={{ background: 'var(--bg-card-hover)', border: '1px solid var(--border)', borderRadius: 6, padding: 4, cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', alignItems: 'center' }} title="Salin">
             {isCopied ? <Check size={12} style={{ color: '#10b981' }} /> : <Copy size={12} />}
           </button>
         )}
@@ -456,7 +456,7 @@ export default function DisbursementPage() {
           ) : (
             <div style={{ fontWeight: 800, fontSize: '1.5rem', color: '#10b981', fontFamily: 'monospace' }}>Rp {fmt(balance?.balance || 0)}</div>
           )}
-          <button onClick={() => setShowDeposit(true)} className="btn btn-sm" style={{ marginTop: 12, background: 'rgba(16,185,129,0.15)', color: '#10b981', border: '1px solid rgba(16,185,129,0.2)', fontWeight: 700 }}>
+          <button onClick={() => setShowDeposit(true)} className="btn btn-primary btn-sm" style={{ marginTop: 12, fontWeight: 700 }}>
             <ArrowDown size={13} /> Deposit
           </button>
         </div>
@@ -571,7 +571,7 @@ export default function DisbursementPage() {
               const sc = STATUS_CONFIG[d.status] || {}
               const Icon = sc.icon || Clock
               return (
-                <div key={d.id} style={{ padding: '12px 16px', borderRadius: 10, background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                <div key={d.id} style={{ padding: '12px 16px', borderRadius: 10, background: 'var(--bg-card-hover)', border: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
                   <div>
                     <div style={{ fontWeight: 600, fontSize: '0.88rem' }}>{d.destination_bank} — {d.destination_account}</div>
                     <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{d.destination_name} {d.note ? `· ${d.note}` : ''}</div>

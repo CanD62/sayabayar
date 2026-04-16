@@ -207,15 +207,14 @@ export default function InvoicesPage() {
                 style={{
                   background: active
                     ? `linear-gradient(135deg, ${color}22 0%, ${color}11 100%)`
-                    : 'rgba(26,28,36,0.7)',
-                  border: `1px solid ${active ? color + '55' : 'rgba(40,44,54,0.8)'}`,
+                    : 'var(--bg-card)',
+                  border: `1px solid ${active ? color + '55' : 'var(--border)'}`,
                   borderRadius: 14,
                   padding: '14px 12px',
                   cursor: 'pointer',
                   textAlign: 'left',
                   transition: 'all 0.2s ease',
-                  boxShadow: active ? `0 4px 20px ${glow}` : 'none',
-                  backdropFilter: 'blur(12px)',
+                  boxShadow: active ? `0 4px 20px ${glow}` : 'var(--shadow-sm)',
                   position: 'relative',
                   overflow: 'hidden',
                 }}
@@ -579,7 +578,7 @@ export default function InvoicesPage() {
               <div style={{ textAlign: 'center', padding: 32 }}><div className="spinner"></div></div>
             ) : (
               <>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, padding: '12px 16px', background: 'rgba(255,255,255,0.03)', borderRadius: 10, border: '1px solid var(--border)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, padding: '12px 16px', background: 'var(--bg-card-hover)', borderRadius: 10, border: '1px solid var(--border)' }}>
                   <div>
                     <div style={{ fontSize: '1.3rem', fontWeight: 800 }}>Rp {fmt(detailData.amount)}</div>
                     {detailData.unique_code > 0 && (
@@ -602,7 +601,7 @@ export default function InvoicesPage() {
                     detailData.redirect_url && ['Redirect URL', <span className="font-mono" style={{ fontSize: '0.72rem', wordBreak: 'break-all' }}>{detailData.redirect_url}</span>],
                     ['Sumber', <span className="badge badge-info" style={{ fontSize: '0.65rem' }}>{detailData.source || '-'}</span>],
                   ].filter(Boolean).map(([label, val], i) => (
-                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 0', borderBottom: '1px solid var(--border)' }}>
                       <span style={{ color: 'var(--text-muted)', flexShrink: 0, marginRight: 12 }}>{label}</span>
                       <span style={{ textAlign: 'right', fontWeight: 500 }}>{val}</span>
                     </div>
@@ -610,7 +609,7 @@ export default function InvoicesPage() {
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
-                  <div style={{ padding: 12, background: 'rgba(255,255,255,0.03)', borderRadius: 10, border: '1px solid var(--border)' }}>
+                  <div style={{ padding: 12, background: 'var(--bg-card-hover)', borderRadius: 10, border: '1px solid var(--border)' }}>
                     <div style={{ fontWeight: 700, fontSize: '0.65rem', marginBottom: 8, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Channel</div>
                     {detailData.payment_channel ? (
                       <div style={{ fontSize: '0.78rem' }}>
@@ -622,7 +621,7 @@ export default function InvoicesPage() {
                       <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Belum dipilih</div>
                     )}
                   </div>
-                  <div style={{ padding: 12, background: 'rgba(255,255,255,0.03)', borderRadius: 10, border: '1px solid var(--border)' }}>
+                  <div style={{ padding: 12, background: 'var(--bg-card-hover)', borderRadius: 10, border: '1px solid var(--border)' }}>
                     <div style={{ fontWeight: 700, fontSize: '0.65rem', marginBottom: 8, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Waktu</div>
                     <div style={{ fontSize: '0.75rem', display: 'flex', flexDirection: 'column', gap: 4 }}>
                       <div><span style={{ color: 'var(--text-muted)' }}>Dibuat: </span>{new Date(detailData.created_at).toLocaleString('id-ID')}</div>
@@ -634,7 +633,7 @@ export default function InvoicesPage() {
                 </div>
 
                 {detailData.transactions?.length > 0 && (
-                  <div style={{ padding: 12, background: 'rgba(255,255,255,0.03)', borderRadius: 10, border: '1px solid var(--border)', marginBottom: 12 }}>
+                  <div style={{ padding: 12, background: 'var(--bg-card-hover)', borderRadius: 10, border: '1px solid var(--border)', marginBottom: 12 }}>
                     <div style={{ fontWeight: 700, fontSize: '0.65rem', marginBottom: 8, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Transaksi Terdeteksi</div>
                     {detailData.transactions.map(t => (
                       <div key={t.id} style={{ marginBottom: 8 }}>
@@ -648,7 +647,7 @@ export default function InvoicesPage() {
                         {t.raw_data && (
                           <details style={{ marginTop: 4 }}>
                             <summary style={{ cursor: 'pointer', fontSize: '0.7rem', color: 'var(--accent)' }}>Raw Data</summary>
-                            <pre style={{ fontSize: '0.65rem', marginTop: 4, padding: 8, borderRadius: 6, background: 'rgba(0,0,0,0.3)', overflow: 'auto', maxHeight: 150, color: 'var(--text-secondary)' }}>
+                            <pre style={{ fontSize: '0.65rem', marginTop: 4, padding: 8, borderRadius: 6, background: 'var(--bg-primary)', overflow: 'auto', maxHeight: 150, color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
                               {JSON.stringify(t.raw_data, null, 2)}
                             </pre>
                           </details>
