@@ -3,7 +3,7 @@
 // Upload KTP + selfie → admin review → approve/reject
 
 import { authenticate, checkClientStatus } from '../middleware/authenticate.js'
-import { blockIfImpersonation } from './auth.js'
+import { blockIfImpersonation } from '../utils/impersonation.js'
 
 // Max file size: 5MB per file
 const MAX_FILE_SIZE = 5 * 1024 * 1024

@@ -1,40 +1,39 @@
 'use client'
 import { useEffect } from 'react'
-import { useSearchParams, useRouter } from 'next/navigation'
-import { api } from '@/lib/api'
+import { useRouter } from 'next/navigation'
 
 /**
  * /impersonate?token=xxx&name=Budi&email=budi@example.com
  *
- * Halaman perantara: set token impersonasi → simpan info sesi → redirect ke dashboard.
- * Tidak ada UI yang ditampilkan (hanya spinner), proses berlangsung di useEffect.
+ * Halaman perantara: simpan token impersonasi ke sessionStorage → redirect dashboard.
+ * TIDAK langsung api.setToken() karena AuthContext akan race-condition dengan /restore.
+ * AuthContext akan cek sessionStorage dan pakai token ini sebagai gantinya.
  */
 export default function ImpersonatePage() {
-  const params = useSearchParams()
   const router = useRouter()
 
   useEffect(() => {
-    const token = params.get('token')
-    const name  = params.get('name')
-    const email = params.get('email')
+    const search = new URLSearchParams(window.location.search)
+    const token = search.get('token')
+    const name  = search.get('name')
+    const email = search.get('email')
 
     if (!token) {
       router.replace('/dashboard')
       return
     }
 
-    // Set token ke ApiClient (in-memory)
-    api.setToken(token)
-
-    // Simpan flag impersonasi ke sessionStorage (hilang saat tab ditutup)
-    // Tidak pakai localStorage agar sesi asli admin tidak terganggu
+    // Simpan token + info sesi ke sessionStorage
+    // AuthContext akan membaca ini dan skip /restore
     sessionStorage.setItem('impersonation', JSON.stringify({
+      token,
       name:  decodeURIComponent(name  || ''),
       email: decodeURIComponent(email || ''),
-      exp:   Date.now() + 900 * 1000, // 15 menit dari sekarang (UTC ms)
+      exp:   Date.now() + 900 * 1000,
     }))
 
-    router.replace('/dashboard')
+    // Full page navigation agar AuthContext re-mount dan baca sessionStorage
+    window.location.href = '/dashboard'
   }, [])
 
   return (

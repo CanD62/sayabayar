@@ -1,7 +1,7 @@
 // apps/api/src/routes/withdrawals.js
 import bcrypt from 'bcrypt'
 import { authenticate, checkClientStatus } from '../middleware/authenticate.js'
-import { blockIfImpersonation } from './auth.js'
+import { blockIfImpersonation } from '../utils/impersonation.js'
 import { WITHDRAW } from '@payment-gateway/shared/constants'
 import { Queue } from 'bullmq'
 

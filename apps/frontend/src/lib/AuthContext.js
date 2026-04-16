@@ -30,6 +30,33 @@ export function AuthProvider({ children }) {
       setTokenVersion(v => v + 1)
     })
 
+    // ── Impersonation: cek sessionStorage dulu ────────────────
+    // Jika ada token impersonasi, skip has_session check dan /restore
+    try {
+      const imp = sessionStorage.getItem('impersonation')
+      if (imp) {
+        const { token } = JSON.parse(imp)
+        if (token) {
+          const restoreImpersonation = async () => {
+            try {
+              bumpToken(token)
+              const me = await api.get('/v1/auth/me')
+              setUser(me.data)
+            } catch {
+              // Token expired atau invalid — hapus impersonation
+              sessionStorage.removeItem('impersonation')
+              api.clearToken()
+              setUser(null)
+            } finally {
+              setLoading(false)
+            }
+          }
+          restoreImpersonation()
+          return  // Jangan lanjut ke restore normal
+        }
+      }
+    } catch {}
+
     // Skip /me call entirely if user was never logged in.
     // This prevents 2 unnecessary API round-trips (me + refresh) on public pages.
     const hasSession = localStorage.getItem('has_session') === '1'

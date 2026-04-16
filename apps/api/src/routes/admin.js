@@ -2,7 +2,7 @@
 // Admin-only endpoints — protected by isAdmin middleware
 
 import { authenticate, checkClientStatus, isAdmin } from '../middleware/authenticate.js'
-import { generateImpersonationToken } from './auth.js'
+import { generateImpersonationToken } from '../utils/impersonation.js'
 import { encrypt, decrypt } from '@payment-gateway/shared/crypto'
 import { getAlaflipBalanceFull, decodeJwtPayload } from '@payment-gateway/shared/flip'
 import { Queue } from 'bullmq'
