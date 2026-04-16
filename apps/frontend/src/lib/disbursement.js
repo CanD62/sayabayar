@@ -8,6 +8,7 @@ export const DISBURSEMENT = {
   FEE_LOW:       2_500,   // transfer < FEE_THRESHOLD
   FEE_HIGH:      3_000,   // transfer >= FEE_THRESHOLD
   FEE_THRESHOLD: 250_000,
+  KYC_THRESHOLD: 490_000, // total_earned >= ini → wajib KYC sebelum tarik dana
 }
 
 /** Hitung fee berdasarkan nominal transfer — sama persis dengan getDisbursementFee() di backend */

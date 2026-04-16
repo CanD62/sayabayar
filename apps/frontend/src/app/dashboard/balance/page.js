@@ -8,6 +8,7 @@ import { useInvoiceEvents } from '@/lib/InvoiceEventContext'
 import { fmt } from '@/lib/format'
 import { SUPPORTED_BANKS } from '@/lib/constants'
 import BankSelect from '@/components/BankSelect'
+import KycGate, { useKycStatus } from '@/components/KycGate'
 
 // Format countdown from now until targetDate
 function useCountdown(targetDate) {
@@ -158,6 +159,10 @@ export default function BalancePage() {
       .finally(() => setLoading(false))
   }
   useEffect(load, [])
+
+  // KYC check — hanya dijalankan jika total_earned >= 250k
+  const totalEarned = balance?.total_earned ?? 0
+  const { kycRequired, kycStatus, loading: kycLoading } = useKycStatus(totalEarned)
 
   // Auto-refresh when balance.settled SSE event fires from layout
   useEffect(() => {
@@ -319,10 +324,20 @@ export default function BalancePage() {
           <h1 className="page-title">Saldo &amp; Penarikan</h1>
           <p className="page-subtitle">Kelola saldo dan tarik dana Anda</p>
         </div>
-        <button className="btn btn-primary" onClick={openWithdraw} disabled={!balance?.balance_available}>
+        <button className="btn btn-primary" onClick={openWithdraw}
+          disabled={!balance?.balance_available || kycRequired || kycLoading}>
           <ArrowDownRight size={16} /> Tarik Dana
         </button>
       </div>
+
+      {/* KYC Banner — muncul hanya jika total_earned >= 250k dan belum approved */}
+      {kycRequired && (
+        <div style={{ marginBottom: 20 }}>
+          <KycGate purpose="withdrawal"
+            loadingSlot={<div style={{ padding: '20px 0', textAlign: 'center' }}><div className="spinner" style={{ margin: '0 auto' }} /></div>}
+          />
+        </div>
+      )}
 
       {/* Stat Cards */}
       <div className="stat-grid">
