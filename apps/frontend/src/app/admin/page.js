@@ -8,13 +8,13 @@ const fmt = (n) => new Intl.NumberFormat('id-ID').format(Math.round(n))
 function StatCard({ icon: Icon, label, value, sub, color = '#10b981', prefix = '' }) {
   return (
     <div className="admin-stat-card" style={{
-      background: 'rgba(26,28,36,0.8)',
-      border: '1px solid rgba(40,44,54,0.8)',
+      background: 'var(--bg-card)',
+      border: '1px solid var(--border)',
       borderRadius: 16,
       padding: '20px 24px',
-      backdropFilter: 'blur(12px)',
       position: 'relative',
       overflow: 'hidden',
+      boxShadow: 'var(--shadow-sm)',
     }}>
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: color, borderRadius: '16px 16px 0 0' }} />
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 12 }}>

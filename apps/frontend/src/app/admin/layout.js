@@ -50,7 +50,7 @@ export default function AdminLayout({ children }) {
         {sidebarOpen ? '✕' : '☰'}
       </button>
       <div className={`sidebar-overlay ${sidebarOpen ? 'open' : ''}`} onClick={() => setSidebarOpen(false)} />
-      <aside className={`sidebar ${sidebarOpen ? 'open' : ''}`} style={{ background: 'linear-gradient(180deg, #0f1117 0%, #131620 100%)' }}>
+      <aside className={`sidebar ${sidebarOpen ? 'open' : ''}`}>
         <div className="sidebar-logo">
           <LogoIcon size={20} />
           <span className="logo-text">Admin Panel</span>

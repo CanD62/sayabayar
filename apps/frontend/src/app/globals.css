@@ -3259,6 +3259,9 @@ tbody tr.row-cancelled:hover {
   grid-template-columns: repeat(3, 1fr);
   gap: 24px;
   position: relative;
+  list-style: none;
+  padding: 0;
+  margin: 0;
 }
 
 .lp-step {
@@ -4091,4 +4094,157 @@ tbody tr.row-cancelled:hover {
   color: var(--text-muted);
   margin-top: 4px;
   display: block;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Landing Page — Light Mode Overrides
+   ═══════════════════════════════════════════════════════════════ */
+[data-theme="light"] .lp-nav {
+  background: rgba(255, 255, 255, 0.92);
+  border-bottom: 1px solid var(--border);
+}
+
+[data-theme="light"] .lp-hero {
+  background-image:
+    radial-gradient(circle at 50% 0%, rgba(5, 150, 105, 0.08) 0%, transparent 55%),
+    radial-gradient(rgba(15, 23, 42, 0.04) 1px, transparent 1px);
+  background-size: 100% 100%, 28px 28px;
+}
+
+/* Section backgrounds — replace all hard-coded darks with light palette */
+[data-theme="light"] .lp-section-problem {
+  background: #f8fafc;
+}
+
+[data-theme="light"] .lp-section-steps {
+  background:
+    radial-gradient(ellipse 70% 40% at 50% 0%, rgba(5, 150, 105, 0.06) 0%, transparent 100%),
+    #ffffff;
+  border-top: 1px solid rgba(5, 150, 105, 0.10) !important;
+}
+
+[data-theme="light"] .lp-section-features {
+  background-image: radial-gradient(rgba(15, 23, 42, 0.04) 1px, transparent 1px);
+  background-size: 24px 24px;
+  background-color: #f1f5f9;
+  border-top: 1px solid var(--border) !important;
+}
+
+[data-theme="light"] .lp-section-security {
+  background: #ffffff;
+  border-top: 1px solid var(--border) !important;
+}
+
+[data-theme="light"] .lp-section-pricing {
+  background:
+    radial-gradient(ellipse 80% 50% at 50% 100%, rgba(5, 150, 105, 0.06) 0%, transparent 100%),
+    #f8fafc;
+  border-top: 1px solid rgba(5, 150, 105, 0.15) !important;
+  border-bottom: 1px solid rgba(5, 150, 105, 0.10);
+}
+
+[data-theme="light"] .lp-section-testimonials {
+  background: #ffffff;
+  border-top: 1px solid var(--border) !important;
+}
+
+[data-theme="light"] .lp-section-faq {
+  background: #f1f5f9;
+  border-top: 1px solid var(--border) !important;
+}
+
+/* Section dividers */
+[data-theme="light"] .lp-section + .lp-section {
+  border-top: 1px solid var(--border);
+}
+
+/* Cards — problem / step / feature / testimonial / pricing */
+[data-theme="light"] .lp-problem-card,
+[data-theme="light"] .lp-step,
+[data-theme="light"] .lp-feature-card,
+[data-theme="light"] .lp-testimonial-card,
+[data-theme="light"] .lp-pricing-card {
+  background: #ffffff;
+  border-color: var(--border);
+}
+
+[data-theme="light"] .lp-problem-card-solution {
+  background: rgba(5, 150, 105, 0.05);
+  border-color: rgba(5, 150, 105, 0.25);
+}
+
+[data-theme="light"] .lp-pricing-card-featured {
+  background: rgba(5, 150, 105, 0.04);
+  border-color: var(--accent);
+  box-shadow: 0 0 32px rgba(5, 150, 105, 0.12);
+}
+
+/* Hover shadows — lighter on light mode */
+[data-theme="light"] .lp-feature-card:hover,
+[data-theme="light"] .lp-step:hover {
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+}
+
+/* FAQ items */
+[data-theme="light"] .lp-section-faq div[style] > div,
+[data-theme="light"] div[onClick] {
+  /* handled via inline style override in JS; border uses var(--border) already */
+}
+
+/* CTA section */
+[data-theme="light"] .lp-cta {
+  background: linear-gradient(135deg, rgba(5, 150, 105, 0.06) 0%, rgba(8, 145, 178, 0.04) 100%);
+  border-top: 1px solid rgba(5, 150, 105, 0.15);
+  border-bottom: 1px solid rgba(5, 150, 105, 0.10);
+}
+
+/* Payment toast */
+[data-theme="light"] .lp [style*="rgba(15,17,24"] {
+  /* PaymentToast has inline style — override via parent selector */
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Admin Pages — Light Mode Overrides
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Admin stat card already uses var(--bg-card) after fix in page.js */
+
+/* History / detail rows that use rgba(255,255,255,0.02-0.05) */
+[data-theme="light"] .admin-stat-card {
+  background: var(--bg-card) !important;
+  border-color: var(--border) !important;
+}
+
+/* Admin dashboard bottom grid */
+.admin-dashboard-bottom {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+@media (max-width: 768px) {
+  .admin-dashboard-bottom {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Settings page dividers */
+[data-theme="light"] [style*="rgba(255,255,255,0.05)"] {
+  border-color: var(--border) !important;
+}
+
+/* Ledger / merchant / kyc inline panel backgrounds */
+[data-theme="light"] [style*="rgba(255,255,255,0.03)"],
+[data-theme="light"] [style*="rgba(255,255,255,0.02)"] {
+  background-color: var(--bg-card-hover) !important;
+}
+
+/* Modal overlay on admin pages */
+[data-theme="light"] [style*="rgba(0,0,0,0.6)"] {
+  background: rgba(15, 23, 42, 0.5) !important;
+}
+
+/* Ledger bank dropdown hover */
+[data-theme="light"] [style*="rgba(255,255,255,0.04)"] {
+  background-color: var(--bg-card-hover) !important;
 }

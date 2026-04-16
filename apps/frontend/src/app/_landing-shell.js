@@ -152,10 +152,10 @@ function FaqItem({ q, a, highlight }) {
         borderRadius: 12,
         border: highlight
           ? '1px solid rgba(16,185,129,0.4)'
-          : '1px solid rgba(255,255,255,0.07)',
+          : '1px solid var(--border)',
         background: highlight
-          ? 'rgba(16,185,129,0.06)'
-          : 'rgba(255,255,255,0.03)',
+          ? 'var(--accent-subtle)'
+          : 'var(--bg-card)',
         padding: '16px 20px',
         cursor: 'pointer',
         transition: 'border-color 0.2s, background 0.2s',
@@ -186,7 +186,7 @@ function FaqItem({ q, a, highlight }) {
           fontSize: '0.875rem',
           color: 'var(--text-muted)',
           lineHeight: 1.7,
-          borderTop: '1px solid rgba(255,255,255,0.06)',
+          borderTop: '1px solid var(--border)',
           paddingTop: 12,
         }}>
           {a}
@@ -335,7 +335,7 @@ function PaymentToast() {
       }}
     >
       <div style={{
-        background: 'rgba(15,17,24,0.93)',
+        background: 'var(--bg-secondary)',
         backdropFilter: 'blur(16px)',
         border: '1px solid rgba(16,185,129,0.25)',
         borderRadius: 14,
@@ -343,7 +343,7 @@ function PaymentToast() {
         display: 'flex',
         alignItems: 'center',
         gap: 12,
-        boxShadow: '0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px rgba(16,185,129,0.1)',
+        boxShadow: 'var(--shadow-lg)',
       }}>
         <div style={{
           width: 36, height: 36, borderRadius: '50%', flexShrink: 0,
@@ -354,7 +354,7 @@ function PaymentToast() {
           <CircleCheckBig size={18} style={{ color: '#10b981' }} />
         </div>
         <div>
-          <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#f1f5f9', lineHeight: 1.3, fontFamily: 'monospace' }}>
+          <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.3, fontFamily: 'monospace' }}>
             {current.invoice}
           </div>
           <div style={{ fontSize: '0.82rem', color: '#10b981', fontWeight: 700, marginTop: 2 }}>

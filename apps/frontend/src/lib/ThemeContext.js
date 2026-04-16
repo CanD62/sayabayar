@@ -7,16 +7,13 @@ export function ThemeProvider({ children }) {
   const [theme, setTheme] = useState('light')
   const [mounted, setMounted] = useState(false)
 
-  // On mount: read from localStorage or system preference
+  // On mount: read from localStorage only — default is always light
   useEffect(() => {
     const stored = localStorage.getItem('theme')
-    if (stored === 'light' || stored === 'dark') {
-      setTheme(stored)
-    } else if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+    if (stored === 'dark') {
       setTheme('dark')
-    } else {
-      setTheme('light')
     }
+    // else: tetap 'light' (default)
     setMounted(true)
   }, [])
 
