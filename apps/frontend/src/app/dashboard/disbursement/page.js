@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useAuth } from '@/lib/AuthContext'
 import { useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
+import { getDisbursementFee } from '@/lib/disbursement'
 import { useToast } from '@/components/Toast'
 import {
   Send, Upload, CreditCard, ArrowUpRight, RefreshCw, Search,
@@ -604,7 +605,7 @@ export default function DisbursementPage() {
 
   // ── Main Dashboard ───────────────────────
   const transferAmt = Number(transferAmount) || 0
-  const fee = transferAmt >= 100000 ? 3000 : 2500
+  const fee = getDisbursementFee(transferAmt)
   const totalDeducted = transferAmt + fee
 
   return (
@@ -920,7 +921,7 @@ function DisbursementApiDocs() {
     { method: 'GET',  path: '/v1/disbursements/balance', desc: 'Cek saldo disbursement' },
     { method: 'GET',  path: '/v1/disbursements/banks',   desc: 'List bank yang didukung' },
     { method: 'POST', path: '/v1/disbursements/inquiry',  desc: 'Cek nama pemilik rekening' },
-    { method: 'POST', path: '/v1/disbursements/transfer', desc: 'Kirim transfer — fee Rp 2.500 (<100k) atau Rp 3.000 (≥100k)' },
+    { method: 'POST', path: '/v1/disbursements/transfer', desc: 'Kirim transfer — fee Rp 2.500 (<250k) atau Rp 3.000 (≥250k)' },
     { method: 'GET',  path: '/v1/disbursements/:id',      desc: 'Detail & status transfer' },
     { method: 'GET',  path: '/v1/disbursements',          desc: 'Riwayat transfer (pagination)' },
   ]
@@ -1175,7 +1176,7 @@ func main() {
           {/* Important notes */}
           <div style={{ marginTop: 16, padding: '12px 16px', borderRadius: 10, background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.15)', fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: 1.7 }}>
             ⚠️ <strong style={{ color: '#f59e0b' }}>Catatan:</strong><br />
-            • Minimal transfer <strong>Rp 10.000</strong>, biaya transfer <strong>Rp 2.500</strong> (di bawah Rp 100.000) atau <strong>Rp 3.000</strong> (Rp 100.000 ke atas)<br />
+            • Minimal transfer <strong>Rp 10.000</strong>, biaya transfer <strong>Rp 2.500</strong> (di bawah Rp 250.000) atau <strong>Rp 3.000</strong> (Rp 250.000 ke atas)<br />
             • Status transfer: <code>pending</code> → <code>processing</code> → <code>success</code> / <code>failed</code><br />
             • Jika gagal, saldo otomatis dikembalikan<br />
             • Inquiry wajib dilakukan sebelum transfer untuk validasi rekening
