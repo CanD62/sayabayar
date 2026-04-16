@@ -4,6 +4,7 @@ import { useAuth } from '@/lib/AuthContext'
 import { useRouter } from 'next/navigation'
 import { useToast } from '@/components/Toast'
 import Sidebar from '@/components/Sidebar'
+import ImpersonationBanner from '@/components/ImpersonationBanner'
 import { InvoiceEventProvider, useInvoiceEvents } from '@/lib/InvoiceEventContext'
 import { api } from '@/lib/api'
 
@@ -136,15 +137,18 @@ function DashboardLayoutInner({ children }) {
   if (!user) return null
 
   return (
-    <div className="layout">
-      <button className="mobile-toggle" onClick={() => setSidebarOpen(!sidebarOpen)}>
-        {sidebarOpen ? '✕' : '☰'}
-      </button>
-      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-      <main className="main-content">
-        {children}
-      </main>
-    </div>
+    <>
+      <ImpersonationBanner />
+      <div className="layout" style={{ paddingTop: typeof window !== 'undefined' && sessionStorage.getItem('impersonation') ? 42 : 0 }}>
+        <button className="mobile-toggle" onClick={() => setSidebarOpen(!sidebarOpen)}>
+          {sidebarOpen ? '✕' : '☰'}
+        </button>
+        <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+        <main className="main-content">
+          {children}
+        </main>
+      </div>
+    </>
   )
 }
 

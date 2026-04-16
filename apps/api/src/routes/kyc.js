@@ -3,6 +3,7 @@
 // Upload KTP + selfie → admin review → approve/reject
 
 import { authenticate, checkClientStatus } from '../middleware/authenticate.js'
+import { blockIfImpersonation } from './auth.js'
 
 // Max file size: 5MB per file
 const MAX_FILE_SIZE = 5 * 1024 * 1024
@@ -71,6 +72,7 @@ export async function kycRoutes(fastify) {
       }
     }
   }, async (request, reply) => {
+    if (request.isImpersonation) return blockIfImpersonation(request, reply)
     const client = request.client
 
     // 1. Cek role

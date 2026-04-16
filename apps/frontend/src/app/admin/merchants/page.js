@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react'
 import { api } from '@/lib/api'
 import { useToast } from '@/components/Toast'
-import { Search, X, UserCheck, UserX, Star, ChevronRight, ShieldCheck, Send, Loader2 } from 'lucide-react'
+import { Search, X, UserCheck, UserX, Star, ChevronRight, ShieldCheck, Send, Loader2, LogIn } from 'lucide-react'
 import AdminTable from '@/components/AdminTable'
 
 const fmt = (n) => new Intl.NumberFormat('id-ID').format(Math.round(n))
@@ -43,6 +43,7 @@ export default function AdminMerchantsPage() {
   const [actionLoading, setActionLoading] = useState(false)
   const [showPlanModal, setShowPlanModal] = useState(false)
   const [roleLoading, setRoleLoading] = useState(false)
+  const [loginAsLoading, setLoginAsLoading] = useState(false)
   const PER_PAGE = 20
 
   const load = async (p = page) => {
@@ -68,6 +69,21 @@ export default function AdminMerchantsPage() {
     try { const res = await api.get(`/v1/admin/clients/${c.id}`); setSelected(res.data) }
     catch { setSelected(null) }
     finally { setDetailLoading(false) }
+  }
+
+  const loginAs = async () => {
+    if (!selected) return
+    setLoginAsLoading(true)
+    try {
+      const res = await api.post(`/v1/admin/impersonate/${selected.id}`)
+      const { access_token, client } = res.data
+      const url = `/impersonate?token=${encodeURIComponent(access_token)}&name=${encodeURIComponent(client.name)}&email=${encodeURIComponent(client.email)}`
+      window.open(url, '_blank', 'noopener')
+    } catch (err) {
+      toast.error(err.message || 'Gagal membuat sesi impersonasi')
+    } finally {
+      setLoginAsLoading(false)
+    }
   }
 
   const toggleStatus = async () => {
@@ -296,6 +312,14 @@ export default function AdminMerchantsPage() {
                   <button className={`btn ${selected.status === 'active' ? 'btn-danger' : 'btn-primary'}`} onClick={toggleStatus} disabled={actionLoading}>
                     {selected.status === 'active' ? <><UserX size={14} /> Suspend</> : <><UserCheck size={14} /> Aktifkan</>}
                   </button>
+                  {selected.status === 'active' && (
+                    <button className="btn btn-ghost" onClick={loginAs} disabled={loginAsLoading}
+                      title="Buka dashboard sebagai user ini (tab baru, 15 menit)"
+                      style={{ border: '1px solid rgba(99,102,241,0.25)', color: '#818cf8' }}>
+                      {loginAsLoading ? <Loader2 size={14} className="spin" /> : <LogIn size={14} />}
+                      Login As
+                    </button>
+                  )}
                 </div>
               </>
             )}

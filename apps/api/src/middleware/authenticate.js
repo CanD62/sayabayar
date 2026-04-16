@@ -38,6 +38,8 @@ export async function authenticate(request, reply) {
 
       request.client = client
       request.authMethod = 'jwt'
+      request.isImpersonation = payload.type === 'impersonation'
+      request.impersonatedBy = payload.impersonatedBy ?? null
       return
     } catch (err) {
       if (err.name === 'TokenExpiredError') {

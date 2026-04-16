@@ -1,6 +1,7 @@
 // apps/api/src/routes/withdrawals.js
 import bcrypt from 'bcrypt'
 import { authenticate, checkClientStatus } from '../middleware/authenticate.js'
+import { blockIfImpersonation } from './auth.js'
 import { WITHDRAW } from '@payment-gateway/shared/constants'
 import { Queue } from 'bullmq'
 
@@ -90,6 +91,7 @@ export async function withdrawalRoutes(fastify) {
       }
     }
   }, async (request, reply) => {
+    if (request.isImpersonation) return blockIfImpersonation(request, reply)
     const clientId = request.client.id
     const today    = new Date()
     today.setHours(0, 0, 0, 0)
@@ -161,6 +163,7 @@ export async function withdrawalRoutes(fastify) {
       }
     }
   }, async (request, reply) => {
+    if (request.isImpersonation) return blockIfImpersonation(request, reply)
     const { amount, destination_bank, destination_account, destination_name, nonce, password } = request.body
     const clientId = request.client.id
 

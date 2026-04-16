@@ -2,6 +2,7 @@
 // Admin-only endpoints — protected by isAdmin middleware
 
 import { authenticate, checkClientStatus, isAdmin } from '../middleware/authenticate.js'
+import { generateImpersonationToken } from './auth.js'
 import { encrypt, decrypt } from '@payment-gateway/shared/crypto'
 import { getAlaflipBalanceFull, decodeJwtPayload } from '@payment-gateway/shared/flip'
 import { Queue } from 'bullmq'
@@ -138,6 +139,47 @@ export async function adminRoutes(fastify) {
         subscription_count: revenueSubscription._count || 0,
       },
       chart_7d: chartData,
+    })
+  })
+
+  // ── POST /admin/impersonate/:clientId ───────────────────────
+  // Buat token impersonasi 15 menit untuk masuk sebagai user tertentu
+  fastify.post('/impersonate/:clientId', async (request, reply) => {
+    const { clientId } = request.params
+    const adminEmail = request.client.email
+
+    const target = await db.client.findUnique({
+      where: { id: clientId },
+      select: { id: true, name: true, email: true, status: true }
+    })
+
+    if (!target) {
+      return reply.fail('NOT_FOUND', 'Client tidak ditemukan', 404)
+    }
+
+    if (target.status !== 'active') {
+      return reply.fail('CLIENT_SUSPENDED', 'Akun client ini di-suspend atau tidak aktif', 400)
+    }
+
+    // Tolak impersonate akun admin sendiri
+    if (target.email === adminEmail) {
+      return reply.fail('INVALID_REQUEST', 'Tidak bisa impersonate akun sendiri', 400)
+    }
+
+    const token = generateImpersonationToken(clientId, adminEmail)
+
+    fastify.log.info(
+      `[Impersonation] ${adminEmail} → ${target.email} (${target.id})`
+    )
+
+    return reply.success({
+      access_token: token,
+      expires_in: 900,
+      client: {
+        id: target.id,
+        name: target.name,
+        email: target.email,
+      }
     })
   })
 
