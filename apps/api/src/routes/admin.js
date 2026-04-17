@@ -2543,5 +2543,136 @@ export async function adminRoutes(fastify) {
       message: `Saldo disbursement ${client.email} bertambah Rp ${amount.toLocaleString('id-ID')}`,
     })
   })
+
+  // ══════════════════════════════════════════════════════════
+  // DEPOSIT MANAGEMENT (disbursement_deposits)
+  // ══════════════════════════════════════════════════════════
+
+  // ── GET /admin/deposits ─────────────────────────────────
+  // List all deposits with client info — for admin to find orphaned/stuck deposits
+  fastify.get('/deposits', {
+    schema: {
+      querystring: {
+        type: 'object',
+        properties: {
+          page: { type: 'integer', minimum: 1, default: 1 },
+          per_page: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
+          status: { type: 'string', enum: ['pending', 'confirmed', 'done', 'expired', 'failed'] },
+        }
+      }
+    }
+  }, async (request, reply) => {
+    const { page = 1, per_page = 20, status } = request.query
+    const where = status ? { status } : {}
+
+    const [deposits, total] = await Promise.all([
+      db.disbursementDeposit.findMany({
+        where,
+        include: {
+          client: { select: { id: true, name: true, email: true } }
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * per_page,
+        take: per_page,
+      }),
+      db.disbursementDeposit.count({ where }),
+    ])
+
+    return reply.success(deposits.map(d => ({
+      id: d.id,
+      client_id: d.clientId,
+      client_name: d.client?.name || '-',
+      client_email: d.client?.email || '-',
+      amount: Number(d.amount),
+      unique_code: d.uniqueCode,
+      total_transfer: Number(d.totalTransfer),
+      sender_bank: d.senderBank,
+      flip_topup_id: d.flipTopupId || null,
+      status: d.status,
+      receiver_bank: d.receiverBank,
+      created_at: d.createdAt,
+      confirmed_at: d.confirmedAt,
+      completed_at: d.completedAt,
+    })), 200, { total, page, per_page })
+  })
+
+  // ── POST /admin/deposits/:id/check-flip ─────────────────
+  // Admin manually check Flip topup status & credit balance if done
+  fastify.post('/deposits/:id/check-flip', async (request, reply) => {
+    const deposit = await db.disbursementDeposit.findUnique({
+      where: { id: request.params.id },
+      include: { client: { select: { email: true } } }
+    })
+
+    if (!deposit) {
+      return reply.fail('NOT_FOUND', 'Deposit tidak ditemukan', 404)
+    }
+
+    if (deposit.status === 'done') {
+      return reply.fail('ALREADY_DONE', 'Deposit ini sudah berstatus done', 422)
+    }
+
+    if (!deposit.flipTopupId) {
+      return reply.fail('NO_FLIP_ID', 'Deposit ini tidak memiliki flip_topup_id', 422)
+    }
+
+    // Check Flip status
+    const { createPaymentProviderService } = await import('../services/paymentProvider.js')
+    const svc = createPaymentProviderService(db, fastify.redis)
+    const flipId = deposit.flipTopupId.replace(/^FT/, '')
+
+    try {
+      const result = await svc.getTopupStatus(flipId)
+      const flipStatus = result.status
+
+      // If Flip says DONE/PROCESSED → credit balance
+      if (flipStatus === 'DONE' || flipStatus === 'PROCESSED') {
+        const now = new Date()
+        const depositAmount = Number(deposit.amount)
+
+        await db.$transaction([
+          db.disbursementDeposit.update({
+            where: { id: deposit.id },
+            data: { status: 'done', completedAt: now, confirmedAt: deposit.confirmedAt || now }
+          }),
+          db.disbursementBalance.upsert({
+            where: { clientId: deposit.clientId },
+            create: {
+              clientId: deposit.clientId,
+              balance: depositAmount,
+              totalDeposited: depositAmount,
+            },
+            update: {
+              balance: { increment: depositAmount },
+              totalDeposited: { increment: depositAmount },
+            }
+          }),
+        ])
+
+        fastify.log.info(`[Admin] Deposit ${deposit.id} force-completed via Flip check: +Rp ${depositAmount} for ${deposit.client?.email}`)
+
+        return reply.success({
+          deposit_id: deposit.id,
+          status: 'done',
+          flip_status: flipStatus,
+          amount: depositAmount,
+          message: `Deposit berhasil diproses! Saldo +Rp ${depositAmount.toLocaleString('id-ID')}`,
+        })
+      }
+
+      // Not done yet — just return current status
+      return reply.success({
+        deposit_id: deposit.id,
+        status: deposit.status,
+        flip_status: flipStatus,
+        flip_raw: result,
+        amount: Number(deposit.amount),
+        message: `Status Flip: ${flipStatus}. Belum DONE/PROCESSED.`,
+      })
+    } catch (e) {
+      fastify.log.error(`[Admin] Deposit check-flip failed: ${e.message}`)
+      return reply.fail('FLIP_ERROR', `Gagal cek Flip: ${e.message}`, 502)
+    }
+  })
 }
 
