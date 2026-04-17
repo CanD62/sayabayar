@@ -94,6 +94,105 @@ function BankSelect({ value, onChange, options, id }) {
 
 // ═══════════════════════════════════════════
 
+// ═══════════════════════════════════════════
+// TRANSFER-IN MODAL (balance_available → disbursement)
+// ═══════════════════════════════════════════
+function TransferInModal({ open, onClose, onSuccess }) {
+  const toast = useToast()
+  const [amount, setAmount] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [availableBalance, setAvailableBalance] = useState(0)
+  const [balanceLoading, setBalanceLoading] = useState(true)
+
+  useEffect(() => {
+    if (open) {
+      setAmount(''); setError(''); setLoading(false); setBalanceLoading(true)
+      api.get('/v1/balance').then(r => {
+        setAvailableBalance(r.data?.balance_available || 0)
+      }).catch(() => {}).finally(() => setBalanceLoading(false))
+    }
+  }, [open])
+
+  const handleTransfer = async () => {
+    const val = Math.round(Number(amount))
+    if (!val || val < 10000) { setError('Minimal Rp 10.000'); return }
+    if (val > availableBalance) { setError('Melebihi saldo tersedia'); return }
+
+    setLoading(true); setError('')
+    try {
+      const res = await api.post('/v1/disbursements/transfer-in', { amount: val })
+      toast.success(res.data?.message || 'Transfer berhasil! ✅')
+      onSuccess?.()
+      onClose()
+    } catch (e) { setError(e.message) }
+    finally { setLoading(false) }
+  }
+
+  if (!open) return null
+
+  return (
+    <div style={overlayStyle} onClick={onClose}>
+      <div style={modalStyle} onClick={e => e.stopPropagation()}>
+        <div style={modalHeaderStyle}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'rgba(99,102,241,0.15)', color: '#818cf8', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><ArrowUpRight size={16} /></div>
+            <span style={{ fontWeight: 700, fontSize: '0.95rem' }}>Transfer dari Saldo</span>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}><X size={16} /></button>
+        </div>
+
+        {error && <div style={{ margin: '0 20px', marginTop: 12, padding: '10px 14px', borderRadius: 10, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', color: '#ef4444', fontSize: '0.78rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}><AlertTriangle size={14} /> {error}</div>}
+
+        <div style={{ padding: '16px 20px 20px' }}>
+          {/* Saldo tersedia */}
+          <div style={{ padding: '12px 16px', borderRadius: 10, background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.12)', marginBottom: 16 }}>
+            <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.03em' }}>Saldo Tersedia (Balance)</div>
+            {balanceLoading ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text-muted)', fontSize: '0.82rem', marginTop: 4 }}><Loader2 size={12} className="spin" /> Memuat...</div>
+            ) : (
+              <div style={{ fontWeight: 800, fontSize: '1.2rem', color: '#818cf8', fontFamily: 'monospace', marginTop: 2 }}>Rp {fmt(availableBalance)}</div>
+            )}
+          </div>
+
+          {/* Input nominal */}
+          <div style={{ marginBottom: 16 }}>
+            <label style={labelStyle}>Nominal Transfer</label>
+            <div style={{ display: 'flex', alignItems: 'center', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden', background: 'var(--bg-input)' }}>
+              <span style={{ padding: '10px 12px', fontSize: '0.88rem', fontWeight: 700, color: 'var(--text-muted)', background: 'rgba(255,255,255,0.02)', borderRight: '1px solid var(--border)' }}>Rp</span>
+              <input type="number" min="10000" step="1000" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0"
+                style={{ flex: 1, padding: '10px 12px', border: 'none', outline: 'none', background: 'transparent', color: 'var(--text-primary)', fontSize: '1.1rem', fontWeight: 700, fontFamily: 'monospace' }} />
+            </div>
+            <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+              {[50000, 100000, 200000, 490000].map(v => (
+                <button key={v} type="button" onClick={() => setAmount(v)}
+                  style={{ padding: '4px 10px', borderRadius: 8, border: `1px solid ${Number(amount) === v ? '#6366f1' : 'var(--border)'}`, background: Number(amount) === v ? 'rgba(99,102,241,0.15)' : 'transparent', color: Number(amount) === v ? '#6366f1' : 'var(--text-muted)', fontSize: '0.72rem', cursor: 'pointer', fontWeight: 600 }}>
+                  {fmt(v)}
+                </button>
+              ))}
+              {availableBalance > 0 && (
+                <button type="button" onClick={() => setAmount(Math.floor(availableBalance))}
+                  style={{ padding: '4px 10px', borderRadius: 8, border: '1px solid rgba(16,185,129,0.3)', background: 'rgba(16,185,129,0.1)', color: '#10b981', fontSize: '0.72rem', cursor: 'pointer', fontWeight: 700 }}>
+                  Semua ({fmt(availableBalance)})
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Info */}
+          <div style={{ padding: '10px 14px', borderRadius: 10, background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.12)', fontSize: '0.75rem', color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 16 }}>
+            ✅ Transfer instan — tanpa biaya, tanpa H+2
+          </div>
+
+          <button onClick={handleTransfer} disabled={loading || !amount || Number(amount) < 10000}
+            className="btn btn-primary" style={{ width: '100%', justifyContent: 'center', fontWeight: 700, padding: '12px', gap: 8 }}>
+            {loading ? <><Loader2 size={14} className="spin" /> Memproses...</> : <><ArrowUpRight size={14} /> Transfer Rp {amount ? fmt(Number(amount)) : '0'}</>}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 // ═══════════════════════════════════════════
 // DEPOSIT MODAL
@@ -303,6 +402,7 @@ export default function DisbursementPage() {
   const [balance, setBalance] = useState(null)
   const [balanceLoading, setBalanceLoading] = useState(true)
   const [showDeposit, setShowDeposit] = useState(false)
+  const [showTransferIn, setShowTransferIn] = useState(false)
 
   // Transfer form
   const [destBank, setDestBank] = useState('')
@@ -456,9 +556,14 @@ export default function DisbursementPage() {
           ) : (
             <div style={{ fontWeight: 800, fontSize: '1.5rem', color: '#10b981', fontFamily: 'monospace' }}>Rp {fmt(balance?.balance || 0)}</div>
           )}
-          <button onClick={() => setShowDeposit(true)} className="btn btn-primary btn-sm" style={{ marginTop: 12, fontWeight: 700 }}>
-            <ArrowDown size={13} /> Deposit
-          </button>
+          <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+            <button onClick={() => setShowTransferIn(true)} className="btn btn-primary btn-sm" style={{ fontWeight: 700 }}>
+              <ArrowUpRight size={13} /> Transfer dari Saldo
+            </button>
+            <button onClick={() => setShowDeposit(true)} className="btn btn-sm" style={{ fontWeight: 700, background: 'rgba(99,102,241,0.1)', color: '#6366f1', border: '1px solid rgba(99,102,241,0.3)' }}>
+              <ArrowDown size={13} /> Deposit via Bank
+            </button>
+          </div>
         </div>
 
         {balance && (
@@ -600,6 +705,7 @@ export default function DisbursementPage() {
       <DisbursementApiDocs />
 
       {/* Deposit Modal */}
+      <TransferInModal open={showTransferIn} onClose={() => setShowTransferIn(false)} onSuccess={() => { loadBalance(); loadHistory() }} />
       <DepositModal open={showDeposit} onClose={() => setShowDeposit(false)} onSuccess={() => { loadBalance(); loadHistory() }} />
     </>
   )

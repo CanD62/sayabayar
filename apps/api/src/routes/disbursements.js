@@ -65,6 +65,99 @@ export async function disbursementRoutes(fastify) {
   })
 
   // ══════════════════════════════════════════════════════════
+  // INTERNAL TRANSFER (balance_available → disbursement_balance)
+  // ══════════════════════════════════════════════════════════
+
+  // ── POST /disbursements/transfer-in ─────────────────────
+  // Pindahkan dana dari balance_available ke saldo disbursement.
+  // Hanya ambil dari balanceAvailable (sudah settle), bukan balancePending.
+  // Khusus disbursement_user — tanpa H+2 delay.
+  fastify.post('/transfer-in', {
+    preHandler: [requireDisbursementAccess],
+    schema: {
+      body: {
+        type: 'object',
+        required: ['amount'],
+        properties: {
+          amount: { type: 'number', minimum: 10000 },
+        }
+      }
+    }
+  }, async (request, reply) => {
+    const clientId = request.client.id
+    const amount = Math.round(request.body.amount)
+
+    if (amount < 10000) {
+      return reply.fail('VALIDATION_ERROR', 'Minimal transfer Rp 10.000', 422)
+    }
+
+    // Cek saldo available (sudah settle, bukan pending)
+    const clientBalance = await db.clientBalance.findUnique({
+      where: { clientId }
+    })
+
+    const available = Number(clientBalance?.balanceAvailable || 0)
+
+    if (available < amount) {
+      return reply.fail(
+        'INSUFFICIENT_BALANCE',
+        `Saldo tersedia Rp ${available.toLocaleString('id-ID')}, tidak cukup untuk transfer Rp ${amount.toLocaleString('id-ID')}.`,
+        422
+      )
+    }
+
+    // Atomic transaction:
+    // 1. Kurangi balance_available
+    // 2. Tambah disbursement_balance
+    // 3. Insert ledger audit trail (debit_withdraw type for balance deduction)
+    const now = new Date()
+
+    await db.$transaction([
+      // Debit dari balance_available
+      db.clientBalance.update({
+        where: { clientId },
+        data: {
+          balanceAvailable: { decrement: amount },
+        }
+      }),
+
+      // Insert ledger entry sebagai audit trail
+      db.balanceLedger.create({
+        data: {
+          clientId,
+          type: 'debit_withdraw',
+          amount,
+          availableAt: now,
+          settledAt: now,
+          note: `Transfer ke saldo disbursement — Rp ${amount.toLocaleString('id-ID')}`,
+        }
+      }),
+
+      // Credit ke disbursement balance
+      db.disbursementBalance.upsert({
+        where: { clientId },
+        create: {
+          clientId,
+          balance: amount,
+          totalDeposited: amount,
+        },
+        update: {
+          balance: { increment: amount },
+          totalDeposited: { increment: amount },
+        }
+      }),
+    ])
+
+    fastify.log.info(`[Disbursement] Transfer-in: ${request.client.email} moved Rp ${amount.toLocaleString('id-ID')} from balance_available to disbursement`)
+
+    return reply.success({
+      amount,
+      message: `Berhasil memindahkan Rp ${amount.toLocaleString('id-ID')} ke saldo disbursement.`,
+      balance_available_after: available - amount,
+    })
+  })
+
+  // ══════════════════════════════════════════════════════════
   // DEPOSIT (via Flip Top-Up)
   // ══════════════════════════════════════════════════════════
 

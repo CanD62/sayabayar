@@ -35,7 +35,8 @@ export function startMatchWorker(concurrency = 5) {
         { createdAt: 'asc' }     // oldest first (FIFO)
       ],
       include: {
-        paymentChannel: { select: { channelOwner: true } }
+        paymentChannel: { select: { channelOwner: true } },
+        client: { select: { role: true } }
       }
     })
 
@@ -108,29 +109,64 @@ export function startMatchWorker(concurrency = 5) {
         // Tidak perlu insert balanceLedger maupun update clientBalance.
         console.log(`[MatchWorker] Own-channel invoice ${invoice.invoiceNumber} — skip balance ledger (dana ke rekening sendiri)`)
       } else {
-        // ── Channel platform: masuk pending, settle H+2 ──────────────────
-        txOps.push(
-          db.balanceLedger.create({
-            data: {
-              clientId: invoice.clientId,
-              invoiceId: invoice.id,
-              type: 'credit_pending',
-              amount: Number(invoice.amount),
-              availableAt: settlementDate,
-              note: `Invoice ${invoice.invoiceNumber} — settlement H+2`
-            }
-          }),
+        const isDisbursementUser = invoice.client?.role === 'disbursement_user'
 
-          db.clientBalance.update({
-            where: { clientId: invoice.clientId },
-            data: {
-              balancePending: { increment: Number(invoice.amount) },
-              totalEarned:    { increment: Number(invoice.amount) }
-            }
-          })
-        )
+        if (isDisbursementUser) {
+          // ── Disbursement user: langsung available (tanpa H+2) ───────────
+          // KYC verified → risiko rendah → dana langsung bisa dipakai
+          txOps.push(
+            db.balanceLedger.create({
+              data: {
+                clientId: invoice.clientId,
+                invoiceId: invoice.id,
+                type: 'credit_available',
+                amount: Number(invoice.amount),
+                availableAt: now,
+                settledAt: now,
+                note: `Invoice ${invoice.invoiceNumber} — instan (disbursement user)`
+              }
+            }),
 
-        console.log(`[MatchWorker] Balance credited: type=credit_pending owner=platform amount=${invoice.amount}`)
+            db.clientBalance.upsert({
+              where: { clientId: invoice.clientId },
+              create: {
+                clientId: invoice.clientId,
+                balanceAvailable: Number(invoice.amount),
+                totalEarned: Number(invoice.amount),
+              },
+              update: {
+                balanceAvailable: { increment: Number(invoice.amount) },
+                totalEarned:      { increment: Number(invoice.amount) }
+              }
+            })
+          )
+
+          console.log(`[MatchWorker] Balance credited: type=credit_available (instant, disbursement_user) amount=${invoice.amount}`)
+        } else {
+          // ── Regular user: masuk pending, settle H+2 ──────────────────
+          txOps.push(
+            db.balanceLedger.create({
+              data: {
+                clientId: invoice.clientId,
+                invoiceId: invoice.id,
+                type: 'credit_pending',
+                amount: Number(invoice.amount),
+                availableAt: settlementDate,
+                note: `Invoice ${invoice.invoiceNumber} — settlement H+2`
+              }
+            }),
+
+            db.clientBalance.update({
+              where: { clientId: invoice.clientId },
+              data: {
+                balancePending: { increment: Number(invoice.amount) },
+                totalEarned:    { increment: Number(invoice.amount) }
+              }
+            })
+          )
+
+          console.log(`[MatchWorker] Balance credited: type=credit_pending owner=platform amount=${invoice.amount}`)
+        }
       }
     }
 
