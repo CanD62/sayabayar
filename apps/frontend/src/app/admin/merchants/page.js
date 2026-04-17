@@ -38,6 +38,7 @@ export default function AdminMerchantsPage() {
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState('')
   const [filterPlan, setFilterPlan] = useState('')
+  const [filterRole, setFilterRole] = useState('')
   const [selected, setSelected] = useState(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [actionLoading, setActionLoading] = useState(false)
@@ -53,13 +54,14 @@ export default function AdminMerchantsPage() {
       if (search) params.set('search', search)
       if (filterStatus) params.set('status', filterStatus)
       if (filterPlan) params.set('plan', filterPlan)
+      if (filterRole) params.set('role', filterRole)
       const res = await api.get(`/v1/admin/clients?${params}`)
       setClients(res.data)
       setTotal(res.pagination?.total || 0)
     } finally { setLoading(false) }
   }
 
-  useEffect(() => { load(1); setPage(1) }, [search, filterStatus, filterPlan])
+  useEffect(() => { load(1); setPage(1) }, [search, filterStatus, filterPlan, filterRole])
   useEffect(() => { load(page) }, [page])
   useEffect(() => { api.get('/v1/admin/plans').then(r => setPlans(r.data || [])).catch(() => {}) }, [])
 
@@ -157,6 +159,12 @@ export default function AdminMerchantsPage() {
           <option value="free">Gratis</option>
           <option value="subscription">Berbayar</option>
         </select>
+        <select value={filterRole} onChange={e => setFilterRole(e.target.value)}
+          style={{ padding: '8px 12px', border: '1px solid var(--border)', borderRadius: 10, background: 'var(--bg-input)', color: 'var(--text-primary)', fontSize: '0.82rem', cursor: 'pointer', minWidth: 0 }}>
+          <option value="">Semua Role</option>
+          <option value="merchant">Merchant</option>
+          <option value="disbursement_user">Disbursement</option>
+        </select>
       </div>
 
       <AdminTable
@@ -192,7 +200,12 @@ export default function AdminMerchantsPage() {
             cells: {
               merchant: (<><div style={{ fontWeight: 600 }}>{c.name}</div><div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{c.email}</div></>),
               plan: <span className={`badge ${pb.cls}`}>{pb.label}</span>,
-              status: <span className={`badge ${sb.cls}`}>{sb.label}</span>,
+              status: (
+                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                  <span className={`badge ${sb.cls}`}>{sb.label}</span>
+                  {c.role && <span className={`badge ${ROLE_BADGE[c.role]?.cls || ''}`} style={{ fontSize: '0.6rem' }}>{ROLE_BADGE[c.role]?.label || c.role}</span>}
+                </div>
+              ),
               saldo: <span style={{ fontWeight: 600 }}>Rp {fmt(c.balance_available)}</span>,
               invoice_count: c.invoice_count,
               daftar: new Date(c.created_at).toLocaleDateString('id-ID'),

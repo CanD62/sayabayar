@@ -33,6 +33,7 @@ function DisbursementsTab() {
   const [page, setPage] = useState(1)
   const [filterStatus, setFilterStatus] = useState('')
   const [retryLoading, setRetryLoading] = useState(null)
+  const [checkLoading, setCheckLoading] = useState(null)
   const PER_PAGE = 20
 
   const load = useCallback(async (p = page) => {
@@ -57,6 +58,22 @@ function DisbursementsTab() {
       load()
     } catch (e) { toast.error(e.message) }
     finally { setRetryLoading(null) }
+  }
+
+  const handleCheckFlip = async (id) => {
+    setCheckLoading(id)
+    try {
+      const res = await api.post(`/v1/admin/disbursements/${id}/check-flip`)
+      if (res.data.flip_status === 'DONE') {
+        toast.success(res.data.message || 'Verified DONE ✅')
+      } else if (['CANCELLED', 'FAILED', 'REJECTED'].includes(res.data.flip_status)) {
+        toast.error(res.data.message || `Flip: ${res.data.flip_status} — saldo di-refund`)
+      } else {
+        toast.info(res.data.message || `Status Flip: ${res.data.flip_status}`)
+      }
+      load(page)
+    } catch (e) { toast.error(e.message) }
+    finally { setCheckLoading(null) }
   }
 
   const totalPages = Math.ceil(total / PER_PAGE)
@@ -115,18 +132,38 @@ function DisbursementsTab() {
               ),
               source: <span className="badge badge-secondary" style={{ fontSize: '0.68rem' }}>{d.source}</span>,
               date: (<><div style={{ fontSize: '0.78rem' }}>{new Date(d.created_at).toLocaleDateString('id-ID')}</div><div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>{new Date(d.created_at).toLocaleTimeString('id-ID')}</div></>),
-              action: d.status === 'failed' ? (
-                <button className="btn btn-sm btn-ghost" onClick={() => handleRetry(d.id)} disabled={retryLoading === d.id} style={{ color: '#f59e0b' }}>
-                  {retryLoading === d.id ? <Loader2 size={12} className="spin" /> : <RotateCcw size={12} />} Retry
-                </button>
-              ) : null,
+              action: (
+                <div style={{ display: 'flex', gap: 4 }}>
+                  {d.flip_trx_id && (
+                    <button className="btn btn-sm btn-ghost" onClick={() => handleCheckFlip(d.id)} disabled={checkLoading === d.id}
+                      style={{ color: '#3b82f6', whiteSpace: 'nowrap' }}>
+                      {checkLoading === d.id ? <Loader2 size={12} className="spin" /> : <SearchIcon size={12} />} Cek Flip
+                    </button>
+                  )}
+                  {d.status === 'failed' && (
+                    <button className="btn btn-sm btn-ghost" onClick={() => handleRetry(d.id)} disabled={retryLoading === d.id} style={{ color: '#f59e0b' }}>
+                      {retryLoading === d.id ? <Loader2 size={12} className="spin" /> : <RotateCcw size={12} />} Retry
+                    </button>
+                  )}
+                </div>
+              ),
             },
-            actions: d.status === 'failed' ? (
-              <button className="btn btn-sm" onClick={() => handleRetry(d.id)} disabled={retryLoading === d.id}
-                style={{ background: 'rgba(245,158,11,0.1)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.2)', width: '100%', justifyContent: 'center' }}>
-                {retryLoading === d.id ? <Loader2 size={12} className="spin" /> : <RotateCcw size={12} />} Retry Disbursement
-              </button>
-            ) : null,
+            actions: (
+              <div style={{ display: 'flex', gap: 6, width: '100%' }}>
+                {d.flip_trx_id && (
+                  <button className="btn btn-sm" onClick={() => handleCheckFlip(d.id)} disabled={checkLoading === d.id}
+                    style={{ background: 'rgba(59,130,246,0.1)', color: '#3b82f6', border: '1px solid rgba(59,130,246,0.2)', flex: 1, justifyContent: 'center' }}>
+                    {checkLoading === d.id ? <Loader2 size={12} className="spin" /> : <SearchIcon size={12} />} Cek Flip
+                  </button>
+                )}
+                {d.status === 'failed' && (
+                  <button className="btn btn-sm" onClick={() => handleRetry(d.id)} disabled={retryLoading === d.id}
+                    style={{ background: 'rgba(245,158,11,0.1)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.2)', flex: 1, justifyContent: 'center' }}>
+                    {retryLoading === d.id ? <Loader2 size={12} className="spin" /> : <RotateCcw size={12} />} Retry
+                  </button>
+                )}
+              </div>
+            ),
           }
         }}
         pagination={totalPages > 1 ? { page, totalPages, onPrev: () => setPage(p => p - 1), onNext: () => setPage(p => p + 1) } : null}

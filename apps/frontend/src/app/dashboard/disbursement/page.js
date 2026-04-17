@@ -420,6 +420,12 @@ export default function DisbursementPage() {
   const [historyPage, setHistoryPage] = useState(1)
   const [historyTotal, setHistoryTotal] = useState(0)
 
+  // Deposit history
+  const [deposits, setDeposits] = useState([])
+  const [depositLoading, setDepositLoading] = useState(true)
+  const [depositPage, setDepositPage] = useState(1)
+  const [depositTotal, setDepositTotal] = useState(0)
+
   // Bank list from API
   const [bankList, setBankList] = useState(null)
 
@@ -461,11 +467,23 @@ export default function DisbursementPage() {
     finally { setHistoryLoading(false) }
   }, [])
 
+  // ── Load deposit history ─────────────────
+  const loadDeposits = useCallback(async (p = 1) => {
+    setDepositLoading(true)
+    try {
+      const res = await api.get(`/v1/disbursements/deposits?page=${p}&per_page=10`)
+      setDeposits(res.data)
+      setDepositTotal(res.pagination?.total || 0)
+    } catch { }
+    finally { setDepositLoading(false) }
+  }, [])
+
   useEffect(() => { loadKyc() }, [])
   useEffect(() => {
     if (kycData?.kyc_status === 'approved') {
       loadBalance()
       loadHistory()
+      loadDeposits()
       // Load bank list
       api.get('/v1/disbursements/banks').then(r => setBankList(r.data)).catch(() => {})
     }
@@ -656,7 +674,7 @@ export default function DisbursementPage() {
       </div>
 
       {/* Transfer History */}
-      <div className="card" style={{ padding: '24px' }}>
+      <div className="card" style={{ padding: '24px', marginBottom: 24 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
             <CreditCard size={18} style={{ color: '#6366f1' }} /> Riwayat Transfer
@@ -701,12 +719,68 @@ export default function DisbursementPage() {
         )}
       </div>
 
+      {/* Deposit History */}
+      <div className="card" style={{ padding: '24px', marginBottom: 24 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <ArrowDown size={18} style={{ color: '#6366f1' }} /> Riwayat Deposit
+          </h3>
+          <button onClick={() => loadDeposits(depositPage)} className="btn btn-sm btn-ghost"><RefreshCw size={12} /></button>
+        </div>
+
+        {depositLoading ? (
+          <div style={{ textAlign: 'center', padding: 24 }}><div className="spinner" /></div>
+        ) : deposits.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--text-muted)', fontSize: '0.88rem' }}>
+            Belum ada riwayat deposit
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {deposits.map(d => {
+              const statusMap = {
+                pending: { label: 'Pending', cls: 'badge-warning', icon: Clock },
+                confirmed: { label: 'Dikonfirmasi', cls: 'badge-info', icon: Loader2 },
+                done: { label: 'Selesai', cls: 'badge-success', icon: Check },
+                expired: { label: 'Expired', cls: 'badge-secondary', icon: Ban },
+                failed: { label: 'Gagal', cls: 'badge-danger', icon: Ban },
+              }
+              const sc = statusMap[d.status] || { label: d.status, cls: '', icon: Clock }
+              const Icon = sc.icon
+              return (
+                <div key={d.id} style={{ padding: '12px 16px', borderRadius: 10, background: 'var(--bg-card-hover)', border: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: '0.88rem' }}>Deposit via {d.sender_bank?.toUpperCase()}</div>
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                      Transfer: Rp {fmt(d.total_transfer)}
+                      {d.unique_code > 0 && <span style={{ color: '#f59e0b' }}> (+{d.unique_code} kode unik)</span>}
+                    </div>
+                    <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: 2 }}>{new Date(d.created_at).toLocaleString('id-ID')}</div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontWeight: 800, fontSize: '0.95rem', fontFamily: 'monospace' }}>Rp {fmt(d.amount)}</div>
+                    <span className={`badge ${sc.cls}`} style={{ marginTop: 4 }}><Icon size={10} /> {sc.label}</span>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {Math.ceil(depositTotal / 10) > 1 && (
+          <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginTop: 16 }}>
+            <button disabled={depositPage <= 1} onClick={() => { setDepositPage(p => p - 1); loadDeposits(depositPage - 1) }} className="btn btn-sm btn-ghost">← Prev</button>
+            <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', padding: '6px 0' }}>{depositPage} / {Math.ceil(depositTotal / 10)}</span>
+            <button disabled={depositPage >= Math.ceil(depositTotal / 10)} onClick={() => { setDepositPage(p => p + 1); loadDeposits(depositPage + 1) }} className="btn btn-sm btn-ghost">Next →</button>
+          </div>
+        )}
+      </div>
+
       {/* API Documentation */}
       <DisbursementApiDocs />
 
       {/* Deposit Modal */}
       <TransferInModal open={showTransferIn} onClose={() => setShowTransferIn(false)} onSuccess={() => { loadBalance(); loadHistory() }} />
-      <DepositModal open={showDeposit} onClose={() => setShowDeposit(false)} onSuccess={() => { loadBalance(); loadHistory() }} />
+      <DepositModal open={showDeposit} onClose={() => setShowDeposit(false)} onSuccess={() => { loadBalance(); loadHistory(); loadDeposits() }} />
     </>
   )
 }

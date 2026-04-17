@@ -193,16 +193,18 @@ export async function adminRoutes(fastify) {
           per_page: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
           status: { type: 'string', enum: ['active', 'suspended', 'inactive'] },
           plan: { type: 'string', enum: ['free', 'subscription'] },
+          role: { type: 'string', enum: ['merchant', 'disbursement_user'] },
           search: { type: 'string', maxLength: 100 },
         }
       }
     }
   }, async (request, reply) => {
-    const { page = 1, per_page = 20, status, plan, search } = request.query
+    const { page = 1, per_page = 20, status, plan, role, search } = request.query
 
     const where = {
       id: { not: 'platform-owner-000000000000000' },
       ...(status && { status }),
+      ...(role && { role }),
       ...(search && {
         OR: [
           { name: { contains: search } },
@@ -244,6 +246,7 @@ export async function adminRoutes(fastify) {
       email: c.email,
       phone: c.phone,
       status: c.status,
+      role: c.role,
       auth_provider: c.authProvider,
       avatar_url: c.avatarUrl,
       plan: c.subscriptions[0] ? {
@@ -460,17 +463,19 @@ export async function adminRoutes(fastify) {
           per_page: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
           status: { type: 'string', enum: ['pending', 'user_confirmed', 'paid', 'expired', 'cancelled'] },
           client_id: { type: 'string' },
+          invoice_number: { type: 'string' },
           date_from: { type: 'string' },
           date_to: { type: 'string' },
         }
       }
     }
   }, async (request, reply) => {
-    const { page = 1, per_page = 20, status, client_id, date_from, date_to } = request.query
+    const { page = 1, per_page = 20, status, client_id, invoice_number, date_from, date_to } = request.query
 
     const where = {
       ...(status && { status }),
       ...(client_id && { clientId: client_id }),
+      ...(invoice_number && { invoiceNumber: invoice_number }),
       ...(date_from || date_to ? {
         createdAt: {
           ...(date_from && { gte: new Date(date_from) }),
@@ -1275,17 +1280,19 @@ export async function adminRoutes(fastify) {
           per_page: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
           match_status: { type: 'string', enum: ['matched', 'unmatched', 'duplicate', 'manual'] },
           channel_id: { type: 'string' },
+          amount: { type: 'number' },
           date_from: { type: 'string' },
           date_to: { type: 'string' },
         }
       }
     }
   }, async (request, reply) => {
-    const { page = 1, per_page = 20, match_status, channel_id, date_from, date_to } = request.query
+    const { page = 1, per_page = 20, match_status, channel_id, amount, date_from, date_to } = request.query
 
     const where = {
       ...(match_status && { matchStatus: match_status }),
       ...(channel_id && { paymentChannelId: channel_id }),
+      ...(amount && { amount }),
       ...(date_from || date_to ? {
         detectedAt: {
           ...(date_from && { gte: new Date(date_from) }),
@@ -1332,25 +1339,31 @@ export async function adminRoutes(fastify) {
     schema: {
       body: {
         type: 'object',
-        required: ['invoice_id'],
         properties: {
           invoice_id: { type: 'string' },
+          invoice_number: { type: 'string' },
         }
       }
     }
   }, async (request, reply) => {
     const { id } = request.params
-    const { invoice_id } = request.body
+    const { invoice_id, invoice_number } = request.body
 
-    const [transaction, invoice] = await Promise.all([
-      db.transaction.findUnique({ where: { id } }),
-      db.invoice.findUnique({
-        where: { id: invoice_id },
-        include: { paymentChannel: { select: { channelOwner: true } } }
-      })
-    ])
+    if (!invoice_id && !invoice_number) {
+      return reply.fail('VALIDATION_ERROR', 'invoice_id atau invoice_number harus diisi', 422)
+    }
 
+    const transaction = await db.transaction.findUnique({ where: { id } })
     if (!transaction) return reply.fail('NOT_FOUND', 'Transaksi tidak ditemukan', 404)
+
+    // Look up invoice by id or by invoice number
+    const invoiceWhere = invoice_id ? { id: invoice_id } : { invoiceNumber: invoice_number }
+    const invoiceInclude = {
+      paymentChannel: { select: { channelOwner: true } },
+      client: { select: { role: true } }
+    }
+    const invoice = await db.invoice.findUnique({ where: invoiceWhere, include: invoiceInclude })
+
     if (!invoice) return reply.fail('NOT_FOUND', 'Invoice tidak ditemukan', 404)
     if (invoice.status === 'paid') return reply.fail('VALIDATION_ERROR', 'Invoice sudah lunas', 422)
     if (transaction.matchStatus === 'matched') return reply.fail('VALIDATION_ERROR', 'Transaksi sudah ter-match', 422)
@@ -1363,34 +1376,67 @@ export async function adminRoutes(fastify) {
     const txOps = [
       db.transaction.update({
         where: { id },
-        data: { invoiceId: invoice_id, matchStatus: 'matched', matchAttempt: { increment: 1 }, lastMatchAttempt: now }
+        data: { invoiceId: invoice.id, matchStatus: 'matched', matchAttempt: { increment: 1 }, lastMatchAttempt: now }
       }),
       db.invoice.update({
-        where: { id: invoice_id },
+        where: { id: invoice.id },
         data: { status: 'paid', paidAt: now }
       })
     ]
 
     if (!isSubscription && !isOwnChannel) {
-      txOps.push(
-        db.balanceLedger.create({
-          data: {
-            clientId: invoice.clientId,
-            invoiceId: invoice.id,
-            type: 'credit_pending',
-            amount: Number(invoice.amount),
-            availableAt: settlementDate,
-            note: `Manual match oleh admin — Invoice ${invoice.invoiceNumber}`
-          }
-        }),
-        db.clientBalance.update({
-          where: { clientId: invoice.clientId },
-          data: {
-            balancePending: { increment: Number(invoice.amount) },
-            totalEarned: { increment: Number(invoice.amount) }
-          }
-        })
-      )
+      const isDisbursementUser = invoice.client?.role === 'disbursement_user'
+
+      if (isDisbursementUser) {
+        // Disbursement user: langsung available (tanpa H+2)
+        txOps.push(
+          db.balanceLedger.create({
+            data: {
+              clientId: invoice.clientId,
+              invoiceId: invoice.id,
+              type: 'credit_available',
+              amount: Number(invoice.amount),
+              availableAt: now,
+              settledAt: now,
+              note: `Manual match — Invoice ${invoice.invoiceNumber} — instan (disbursement user)`
+            }
+          }),
+          db.clientBalance.upsert({
+            where: { clientId: invoice.clientId },
+            create: {
+              clientId: invoice.clientId,
+              balanceAvailable: Number(invoice.amount),
+              totalEarned: Number(invoice.amount),
+            },
+            update: {
+              balanceAvailable: { increment: Number(invoice.amount) },
+              totalEarned:      { increment: Number(invoice.amount) }
+            }
+          })
+        )
+        fastify.log.info(`[Admin] Manual match: disbursement_user → credit_available (instant) amount=${invoice.amount}`)
+      } else {
+        // Regular user: masuk pending, settle H+2
+        txOps.push(
+          db.balanceLedger.create({
+            data: {
+              clientId: invoice.clientId,
+              invoiceId: invoice.id,
+              type: 'credit_pending',
+              amount: Number(invoice.amount),
+              availableAt: settlementDate,
+              note: `Manual match oleh admin — Invoice ${invoice.invoiceNumber}`
+            }
+          }),
+          db.clientBalance.update({
+            where: { clientId: invoice.clientId },
+            data: {
+              balancePending: { increment: Number(invoice.amount) },
+              totalEarned: { increment: Number(invoice.amount) }
+            }
+          })
+        )
+      }
     }
 
     await db.$transaction(txOps)
@@ -2671,6 +2717,146 @@ export async function adminRoutes(fastify) {
       })
     } catch (e) {
       fastify.log.error(`[Admin] Deposit check-flip failed: ${e.message}`)
+      return reply.fail('FLIP_ERROR', `Gagal cek Flip: ${e.message}`, 502)
+    }
+  })
+
+  // ── POST /admin/withdrawals/:id/check-flip ──────────────
+  // Admin manually verify withdrawal status from Flip API
+  fastify.post('/withdrawals/:id/check-flip', async (request, reply) => {
+    const withdrawal = await db.withdrawal.findUnique({
+      where: { id: request.params.id },
+      include: { client: { select: { email: true } } }
+    })
+
+    if (!withdrawal) return reply.fail('NOT_FOUND', 'Withdrawal tidak ditemukan', 404)
+    if (!withdrawal.flipTrxId) return reply.fail('NO_FLIP_ID', 'Withdrawal tidak memiliki flip_trx_id', 422)
+
+    const { createPaymentProviderService } = await import('../services/paymentProvider.js')
+    const svc = createPaymentProviderService(db, fastify.redis)
+    const flipId = withdrawal.flipTrxId.replace(/^FT/, '')
+
+    try {
+      const { getTransferStatus } = await import('@payment-gateway/shared/flip')
+      const token = await svc.getToken()
+      const result = await getTransferStatus(flipId, token)
+      const flipStatus = (result?.status || '').toUpperCase()
+
+      if (flipStatus === 'DONE' && withdrawal.status !== 'processed') {
+        await db.withdrawal.update({
+          where: { id: withdrawal.id },
+          data: { status: 'processed' }
+        })
+        return reply.success({
+          id: withdrawal.id, status: 'processed', flip_status: flipStatus,
+          message: `Withdrawal verified DONE — status updated to processed.`
+        })
+      }
+
+      if (['CANCELLED', 'FAILED', 'REJECTED'].includes(flipStatus) && !['failed', 'rejected'].includes(withdrawal.status)) {
+        await db.$transaction([
+          db.withdrawal.update({
+            where: { id: withdrawal.id },
+            data: { status: 'failed', rejectionReason: `Flip status: ${flipStatus} (admin re-verify)` }
+          }),
+          db.clientBalance.update({
+            where: { clientId: withdrawal.clientId },
+            data: {
+              balanceAvailable: { increment: Number(withdrawal.amount) },
+              totalWithdrawn: { decrement: Number(withdrawal.amount) }
+            }
+          }),
+          db.balanceLedger.create({
+            data: {
+              clientId: withdrawal.clientId,
+              withdrawalId: withdrawal.id,
+              type: 'credit_available',
+              amount: Number(withdrawal.amount),
+              availableAt: new Date(),
+              settledAt: new Date(),
+              note: `Refund withdrawal — Flip ${flipStatus} (admin re-verify)`
+            }
+          })
+        ])
+
+        fastify.log.info(`[Admin] Withdrawal ${withdrawal.id} FAILED by Flip (${flipStatus}) — refunded Rp ${withdrawal.amount}`)
+        return reply.success({
+          id: withdrawal.id, status: 'failed', flip_status: flipStatus,
+          message: `Withdrawal GAGAL di Flip (${flipStatus}). Saldo Rp ${Number(withdrawal.amount).toLocaleString('id-ID')} dikembalikan.`
+        })
+      }
+
+      return reply.success({
+        id: withdrawal.id, status: withdrawal.status, flip_status: flipStatus,
+        flip_raw: result,
+        message: `Status Flip: ${flipStatus}. Status DB: ${withdrawal.status}.`
+      })
+    } catch (e) {
+      return reply.fail('FLIP_ERROR', `Gagal cek Flip: ${e.message}`, 502)
+    }
+  })
+
+  // ── POST /admin/disbursements/:id/check-flip ────────────
+  // Admin manually verify disbursement status from Flip API
+  fastify.post('/disbursements/:id/check-flip', async (request, reply) => {
+    const disbursement = await db.disbursement.findUnique({
+      where: { id: request.params.id },
+      include: { client: { select: { email: true } } }
+    })
+
+    if (!disbursement) return reply.fail('NOT_FOUND', 'Disbursement tidak ditemukan', 404)
+    if (!disbursement.flipTrxId) return reply.fail('NO_FLIP_ID', 'Disbursement tidak memiliki flip_trx_id', 422)
+
+    const { createPaymentProviderService } = await import('../services/paymentProvider.js')
+    const svc = createPaymentProviderService(db, fastify.redis)
+    const flipId = disbursement.flipTrxId.replace(/^FT/, '')
+
+    try {
+      const { getTransferStatus } = await import('@payment-gateway/shared/flip')
+      const token = await svc.getToken()
+      const result = await getTransferStatus(flipId, token)
+      const flipStatus = (result?.status || '').toUpperCase()
+
+      if (flipStatus === 'DONE' && disbursement.status !== 'success') {
+        await db.disbursement.update({
+          where: { id: disbursement.id },
+          data: { status: 'success' }
+        })
+        return reply.success({
+          id: disbursement.id, status: 'success', flip_status: flipStatus,
+          message: `Disbursement verified DONE.`
+        })
+      }
+
+      if (['CANCELLED', 'FAILED', 'REJECTED'].includes(flipStatus) && disbursement.status !== 'failed') {
+        await db.$transaction([
+          db.disbursement.update({
+            where: { id: disbursement.id },
+            data: { status: 'failed', failureReason: `Flip status: ${flipStatus} (admin re-verify)` }
+          }),
+          db.disbursementBalance.update({
+            where: { clientId: disbursement.clientId },
+            data: {
+              balance: { increment: Number(disbursement.totalDeducted) },
+              totalDisbursed: { decrement: Number(disbursement.amount) },
+              totalFees: { decrement: Number(disbursement.fee) },
+            }
+          }),
+        ])
+
+        fastify.log.info(`[Admin] Disbursement ${disbursement.id} FAILED by Flip (${flipStatus}) — refunded Rp ${disbursement.totalDeducted}`)
+        return reply.success({
+          id: disbursement.id, status: 'failed', flip_status: flipStatus,
+          message: `Disbursement GAGAL di Flip (${flipStatus}). Saldo Rp ${Number(disbursement.totalDeducted).toLocaleString('id-ID')} dikembalikan.`
+        })
+      }
+
+      return reply.success({
+        id: disbursement.id, status: disbursement.status, flip_status: flipStatus,
+        flip_raw: result,
+        message: `Status Flip: ${flipStatus}. Status DB: ${disbursement.status}.`
+      })
+    } catch (e) {
       return reply.fail('FLIP_ERROR', `Gagal cek Flip: ${e.message}`, 502)
     }
   })

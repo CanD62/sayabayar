@@ -183,11 +183,13 @@ export function startFlipWorker() {
         throw new Error(`Transfer response tidak valid: ${JSON.stringify(transferRes)}`)
       }
 
-      // ── Step 4: Update ke processed ──────────────────────
+      // ── Step 4: Mark as processing with Flip ID ─────────────
+      // Status final (processed/failed) ditentukan oleh flipStatusWorker
+      // setelah verifikasi ke Flip API
       await db.withdrawal.update({
         where: { id: withdrawalId },
         data: {
-          status: 'processed',
+          status: 'processing',
           flipTrxId: String(trxId),
           processedAt: new Date(),
           rejectionReason: null
@@ -374,11 +376,12 @@ async function handleDisbursementTransfer(job, db) {
     const trxId = transferRes?.id || transferRes?.data?.id
     if (!trxId) throw new Error(`Transfer response tidak valid: ${JSON.stringify(transferRes)}`)
 
-    // ── Step 4: Mark as success ──────────────────────────
+    // ── Step 4: Mark as processing with Flip ID ──────────
+    // Status final (success/failed) ditentukan oleh flipStatusWorker
     await db.disbursement.update({
       where: { id: disbursementId },
       data: {
-        status: 'success',
+        status: 'processing',
         flipTrxId: String(trxId),
         processedAt: new Date(),
         failureReason: null,

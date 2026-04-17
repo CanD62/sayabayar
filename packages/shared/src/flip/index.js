@@ -301,6 +301,18 @@ export async function confirmTopup(topupId, token, idempotencyKey) {
 }
 
 /**
+ * PUT /api/v2/top-up-wallet-transfers/{topupId}/cancel
+ * Cancel pending topup sebelum dibayar user.
+ */
+export async function cancelTopup(topupId, token) {
+  const res = await fetch(`${FLIP_URLS.topupConfirm}/${topupId}/cancel`, {
+    method: 'PUT',
+    headers: flipHeaders(token),
+  })
+  return parseResponse(res)
+}
+
+/**
  * GET /api/v2/top-up-wallet-transfers/{topupId}
  * Polling status top-up: NOT_CONFIRMED → PENDING → PROCESSED → DONE.
  * Verified dari HAR topup_saldo_flip.har.
@@ -309,6 +321,21 @@ export async function confirmTopup(topupId, token, idempotencyKey) {
  */
 export async function getTopupStatus(topupId, token) {
   const res = await fetch(`${FLIP_URLS.topupStatus}/${topupId}`, {
+    method: 'GET',
+    headers: flipHeaders(token),
+  })
+  return parseResponse(res)
+}
+
+/**
+ * GET /api/v2/forward-transfers/{id}
+ * Cek status transfer (withdrawal/disbursement).
+ * Response mengandung `status`: DONE, CANCELLED, etc.
+ *
+ * @param {string} trxId - Flip transaction ID
+ */
+export async function getTransferStatus(trxId, token) {
+  const res = await fetch(`${FLIP_URLS.transfer}/${trxId}`, {
     method: 'GET',
     headers: flipHeaders(token),
   })

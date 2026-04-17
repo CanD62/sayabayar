@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react'
 import { api } from '@/lib/api'
 import { useToast } from '@/components/Toast'
-import { X, Link2, AlertTriangle } from 'lucide-react'
+import { X, Link2, AlertTriangle, Search } from 'lucide-react'
 import AdminTable from '@/components/AdminTable'
 
 const fmt = (n) => new Intl.NumberFormat('id-ID').format(Math.round(n))
@@ -23,6 +23,7 @@ export default function AdminTransactionsPage() {
   const [filterStatus, setFilterStatus] = useState('')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
+  const [searchAmount, setSearchAmount] = useState('')
   const [matchTarget, setMatchTarget] = useState(null)
   const [invoiceSearch, setInvoiceSearch] = useState('')
   const [matchLoading, setMatchLoading] = useState(false)
@@ -35,27 +36,24 @@ export default function AdminTransactionsPage() {
       if (filterStatus) params.set('match_status', filterStatus)
       if (dateFrom) params.set('date_from', dateFrom)
       if (dateTo) params.set('date_to', dateTo)
+      if (searchAmount) params.set('amount', searchAmount)
       const res = await api.get(`/v1/admin/transactions?${params}`)
       setTransactions(res.data)
       setTotal(res.pagination?.total || 0)
     } finally { setLoading(false) }
   }
 
-  useEffect(() => { load(1); setPage(1) }, [filterStatus, dateFrom, dateTo])
+  useEffect(() => { load(1); setPage(1) }, [filterStatus, dateFrom, dateTo, searchAmount])
   useEffect(() => { load(page) }, [page])
 
   const handleMatch = async () => {
     if (!matchTarget || !invoiceSearch.trim()) return
     setMatchLoading(true)
     try {
-      const invoicesRes = await api.get(`/v1/admin/invoices?per_page=5&status=pending`)
-      const allInvoices = invoicesRes.data || []
-      const invoice = allInvoices.find(i => i.invoice_number.toLowerCase().includes(invoiceSearch.trim().toLowerCase()))
-      if (!invoice) { toast.error('Invoice tidak ditemukan.'); return }
-      const res = await api.patch(`/v1/admin/transactions/${matchTarget.id}/match`, { invoice_id: invoice.id })
+      const res = await api.patch(`/v1/admin/transactions/${matchTarget.id}/match`, { invoice_number: invoiceSearch.trim() })
       toast.success(res.data.message)
       setMatchTarget(null); setInvoiceSearch(''); load()
-    } catch (e) { toast.error(e.message) }
+    } catch (e) { toast.error(e.response?.data?.error?.message || e.message) }
     finally { setMatchLoading(false) }
   }
 
@@ -97,8 +95,13 @@ export default function AdminTransactionsPage() {
         <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} style={{ padding: '8px 12px', border: '1px solid var(--border)', borderRadius: 10, background: 'var(--bg-input)', color: 'var(--text-primary)', fontSize: '0.82rem', minWidth: 0 }} />
         <span style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>—</span>
         <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} style={{ padding: '8px 12px', border: '1px solid var(--border)', borderRadius: 10, background: 'var(--bg-input)', color: 'var(--text-primary)', fontSize: '0.82rem', minWidth: 0 }} />
-        {(filterStatus || dateFrom || dateTo) && (
-          <button className="btn btn-sm btn-ghost" onClick={() => { setFilterStatus(''); setDateFrom(''); setDateTo('') }}><X size={12} /> Reset</button>
+        <div style={{ position: 'relative', minWidth: 130 }}>
+          <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
+          <input type="number" placeholder="Cari nominal..." value={searchAmount} onChange={e => setSearchAmount(e.target.value)}
+            style={{ width: '100%', boxSizing: 'border-box', paddingLeft: 30, paddingRight: 10, paddingTop: 8, paddingBottom: 8, border: '1px solid var(--border)', borderRadius: 10, background: 'var(--bg-input)', color: 'var(--text-primary)', fontSize: '0.82rem', outline: 'none', fontFamily: 'var(--font-sans)' }} />
+        </div>
+        {(filterStatus || dateFrom || dateTo || searchAmount) && (
+          <button className="btn btn-sm btn-ghost" onClick={() => { setFilterStatus(''); setDateFrom(''); setDateTo(''); setSearchAmount('') }}><X size={12} /> Reset</button>
         )}
       </div>
 

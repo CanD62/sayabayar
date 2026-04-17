@@ -21,4 +21,6 @@ export {
   getAkunInfo       as infoAkun,
   getBankList,
   checkAccount,
+  getTransferStatus,
+  getTopupStatus,
 } from '@payment-gateway/shared/flip'

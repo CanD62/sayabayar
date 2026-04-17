@@ -306,16 +306,31 @@ export async function disbursementRoutes(fastify) {
       return reply.fail('VALIDATION_ERROR', `Deposit sudah berstatus ${deposit.status}, tidak bisa dibatalkan.`, 422)
     }
 
+    // Cancel di Flip jika ada flipTopupId
+    if (deposit.flipTopupId) {
+      try {
+        const { createPaymentProviderService } = await import('../services/paymentProvider.js')
+        const svc = createPaymentProviderService(db, fastify.redis)
+        const { cancelTopup } = await import('@payment-gateway/shared/flip')
+        const token = await svc.getToken()
+        const flipId = deposit.flipTopupId.replace(/^FT/, '')
+        await cancelTopup(flipId, token)
+        fastify.log.info(`[Disbursement] Flip topup ${flipId} cancelled`)
+      } catch (err) {
+        fastify.log.warn(`[Disbursement] Flip cancel failed (non-blocking): ${err.message}`)
+      }
+    }
+
     await db.disbursementDeposit.update({
       where: { id: deposit.id },
-      data: { status: 'cancelled' }
+      data: { status: 'expired' }
     })
 
     fastify.log.info(`[Disbursement] Deposit ${deposit.id} cancelled by user`)
 
     return reply.success({
       deposit_id: deposit.id,
-      status: 'cancelled',
+      status: 'expired',
       message: 'Deposit dibatalkan. Anda bisa membuat deposit baru.',
     })
   })

@@ -10,6 +10,7 @@ import { startMatchWorker } from './workers/matchWorker.js'
 import { startWebhookWorker } from './workers/webhookWorker.js'
 import { startSettlementWorker, stopSettlementWorker } from './workers/settlementWorker.js'
 import { startFlipWorker } from './workers/flipWorker.js'
+import { startFlipStatusWorker, stopFlipStatusWorker } from './workers/flipStatusWorker.js'
 import { closeBrowser as closeFlipBrowser, activateAlaflip } from './scrapers/flipBrowser.js'
 import { closeSessionStore } from './sessionStore.js'
 import { createServer } from 'http'
@@ -83,12 +84,13 @@ const flipWorker = startFlipWorker()         // concurrency=1, sequential
 // ── Start settlement worker ───────────────────────────────
 // Settles pending balances every 5 minutes
 startSettlementWorker() // default: 30s (dev)
+startFlipStatusWorker() // check Flip status every 10s
 
 // ── Start scheduler ───────────────────────────────────────
 startScheduler(5000)
 
 console.log('🚀 Scraper Service running!')
-console.log(`   Workers: scrape(${concurrency}), match(${concurrency}), webhook(3), flip(1)`)
+console.log(`   Workers: scrape(${concurrency}), match(${concurrency}), webhook(3), flip(1), flipStatus(cron)`)
 console.log(`   Browser pool max: ${process.env.MAX_BROWSERS || 20}`)
 
 // ── Graceful Shutdown ─────────────────────────────────────
@@ -110,6 +112,7 @@ const shutdown = async (signal) => {
   await flipWorker.close().catch(() => { })
   // await alaflipWorker.close().catch(() => { })
   stopSettlementWorker()
+  stopFlipStatusWorker()
 
   // Logout from banks + close browsers
   await browserPool.shutdown()

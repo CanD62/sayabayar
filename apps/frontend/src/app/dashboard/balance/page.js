@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { ArrowDownRight, Wallet, Clock, CircleDollarSign, Timer, CheckCircle2, Hourglass, Eye, EyeOff, CheckCircle, XCircle } from 'lucide-react'
+import { ArrowDownRight, Wallet, Clock, CircleDollarSign, Timer, CheckCircle2, Hourglass, Eye, EyeOff, CheckCircle, XCircle, ArrowUpRight } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useToast } from '@/components/Toast'
 import { SkeletonStatGrid, SkeletonTable } from '@/components/Skeleton'
@@ -127,6 +127,7 @@ export default function BalancePage() {
   const [balance, setBalance] = useState(null)
   const [ledgerAvailable, setLedgerAvailable] = useState([])
   const [ledgerPending, setLedgerPending] = useState([])
+  const [ledgerDebit, setLedgerDebit] = useState([])
   const [loading, setLoading] = useState(true)
   const [showWithdraw, setShowWithdraw] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -150,11 +151,13 @@ export default function BalancePage() {
       api.get('/v1/balance'),
       api.get('/v1/balance/ledger?type=credit_available&per_page=50'),
       api.get('/v1/balance/ledger?type=credit_pending&per_page=50'),
+      api.get('/v1/balance/ledger?type=debit_withdraw&per_page=50'),
     ])
-      .then(([b, avail, pend]) => {
+      .then(([b, avail, pend, debit]) => {
         setBalance(b.data)
         setLedgerAvailable(avail.data)
         setLedgerPending(pend.data)
+        setLedgerDebit(debit.data)
       })
       .finally(() => setLoading(false))
   }
@@ -389,6 +392,21 @@ export default function BalancePage() {
         </div>
         <LedgerTable entries={ledgerAvailable} showStatus={false} />
       </div>
+
+      {/* Riwayat Penarikan & Transfer */}
+      {ledgerDebit.length > 0 && (
+        <div className="card mobile-cards" style={{ marginTop: 16 }}>
+          <div className="card-header" style={{ padding: '16px 20px 0', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <ArrowUpRight size={18} style={{ color: 'var(--danger)' }} />
+            <h2 className="card-title" style={{ margin: 0 }}>Riwayat Penarikan & Transfer</h2>
+            <span className="badge badge-danger" style={{ marginLeft: 4 }}>{ledgerDebit.length}</span>
+            <span style={{ marginLeft: 'auto', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+              Penarikan dan transfer ke saldo disbursement
+            </span>
+          </div>
+          <LedgerTable entries={ledgerDebit} showStatus={false} />
+        </div>
+      )}
 
       {/* Withdraw Modal */}
       {showWithdraw && (
