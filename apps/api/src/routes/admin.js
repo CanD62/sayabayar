@@ -1453,7 +1453,16 @@ export async function adminRoutes(fastify) {
     const invoiceWhere = invoice_id ? { id: invoice_id } : { invoiceNumber: invoice_number }
     const invoiceInclude = {
       paymentChannel: { select: { channelOwner: true } },
-      client: { select: { role: true } }
+      client: {
+        select: {
+          role: true,
+          subscriptions: {
+            where: { status: 'active' },
+            select: { id: true },
+            take: 1
+          }
+        }
+      }
     }
     const invoice = await db.invoice.findUnique({ where: invoiceWhere, include: invoiceInclude })
 
@@ -1478,45 +1487,72 @@ export async function adminRoutes(fastify) {
     ]
 
     if (!isSubscription && !isOwnChannel) {
-      const isDisbursementUser = invoice.client?.role === 'disbursement_user'
+      const invoiceAmount = Number(invoice.amount)
+      const isDisbursementPro = invoice.client?.role === 'disbursement_user' && (invoice.client?.subscriptions?.length > 0)
 
-      if (isDisbursementUser) {
-        // Disbursement user: langsung available (tanpa H+2)
+      if (isDisbursementPro) {
+        // Disbursement Pro: langsung available (tanpa H+2)
+        const MDR_THRESHOLD = 500_000
+        const MDR_RATE = 0.004 // 0.4%
+        const mdrDeduction = invoiceAmount > MDR_THRESHOLD
+          ? Math.round(invoiceAmount * MDR_RATE)
+          : 0
+        const creditAmount = invoiceAmount - mdrDeduction
+
         txOps.push(
           db.balanceLedger.create({
             data: {
               clientId: invoice.clientId,
               invoiceId: invoice.id,
               type: 'credit_available',
-              amount: Number(invoice.amount),
+              amount: creditAmount,
               availableAt: now,
               settledAt: now,
-              note: `Manual match — Invoice ${invoice.invoiceNumber} — instan (disbursement user)`
+              note: mdrDeduction > 0
+                ? `Manual match — Invoice ${invoice.invoiceNumber} — instan (MDR 0.4%: -Rp ${mdrDeduction.toLocaleString('id-ID')})`
+                : `Manual match — Invoice ${invoice.invoiceNumber} — instan (disbursement pro)`
             }
           }),
           db.clientBalance.upsert({
             where: { clientId: invoice.clientId },
             create: {
               clientId: invoice.clientId,
-              balanceAvailable: Number(invoice.amount),
-              totalEarned: Number(invoice.amount),
+              balanceAvailable: creditAmount,
+              totalEarned: creditAmount,
             },
             update: {
-              balanceAvailable: { increment: Number(invoice.amount) },
-              totalEarned:      { increment: Number(invoice.amount) }
+              balanceAvailable: { increment: creditAmount },
+              totalEarned:      { increment: creditAmount }
             }
           })
         )
-        fastify.log.info(`[Admin] Manual match: disbursement_user → credit_available (instant) amount=${invoice.amount}`)
+
+        if (mdrDeduction > 0) {
+          txOps.push(
+            db.balanceLedger.create({
+              data: {
+                clientId: invoice.clientId,
+                invoiceId: invoice.id,
+                type: 'mdr_fee',
+                amount: mdrDeduction,
+                availableAt: now,
+                settledAt: now,
+                note: `MDR 0.4% — Invoice ${invoice.invoiceNumber} (manual match, Rp ${invoiceAmount.toLocaleString('id-ID')})`
+              }
+            })
+          )
+        }
+
+        fastify.log.info(`[Admin] Manual match: disbursement_pro → credit_available (instant) amount=${creditAmount}${mdrDeduction > 0 ? ` (MDR: -${mdrDeduction})` : ''}`)
       } else {
-        // Regular user: masuk pending, settle H+2
+        // Regular user / Disbursement Free: masuk pending, settle H+2
         txOps.push(
           db.balanceLedger.create({
             data: {
               clientId: invoice.clientId,
               invoiceId: invoice.id,
               type: 'credit_pending',
-              amount: Number(invoice.amount),
+              amount: invoiceAmount,
               availableAt: settlementDate,
               note: `Manual match oleh admin — Invoice ${invoice.invoiceNumber}`
             }
@@ -1524,8 +1560,8 @@ export async function adminRoutes(fastify) {
           db.clientBalance.update({
             where: { clientId: invoice.clientId },
             data: {
-              balancePending: { increment: Number(invoice.amount) },
-              totalEarned: { increment: Number(invoice.amount) }
+              balancePending: { increment: invoiceAmount },
+              totalEarned: { increment: invoiceAmount }
             }
           })
         )
