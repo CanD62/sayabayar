@@ -44,6 +44,9 @@ export default function InvoicesPage() {
   const [stats, setStats] = useState(null)
   const [filterStatus, setFilterStatus] = useState('')
   const [search, setSearch] = useState('')
+  const [page, setPage] = useState(1)
+  const [total, setTotal] = useState(0)
+  const PER_PAGE = 20
 
   const openDetail = async (inv) => {
     setDetailLoading(true)
@@ -60,8 +63,10 @@ export default function InvoicesPage() {
     }
   }
 
-  const load = (status = filterStatus) => {
-    const invUrl = status ? `/v1/invoices?status=${status}` : '/v1/invoices'
+  const load = (status = filterStatus, p = page) => {
+    const params = new URLSearchParams({ page: p, per_page: PER_PAGE })
+    if (status) params.set('status', status)
+    const invUrl = `/v1/invoices?${params}`
     Promise.all([
       api.get(invUrl),
       api.get('/v1/subscriptions/current'),
@@ -69,6 +74,7 @@ export default function InvoicesPage() {
       api.get('/v1/invoices/stats')
     ]).then(([inv, sub, ch, st]) => {
       setInvoices(inv.data)
+      setTotal(inv.pagination?.total || 0)
       const canOwn = sub.data?.plan?.can_add_own_channel === true
       const ownChannels = (ch.data || []).filter(c => c.is_active && c.channel_owner === 'client')
       setCanAddOwnChannel(canOwn)
@@ -78,7 +84,8 @@ export default function InvoicesPage() {
       setIsFreePlan(!sub.data?.plan)
     }).finally(() => setLoading(false))
   }
-  useEffect(() => { load(filterStatus) }, [filterStatus])
+  useEffect(() => { setPage(1); load(filterStatus, 1) }, [filterStatus])
+  useEffect(() => { load(filterStatus, page) }, [page])
 
   useEffect(() => {
     if (!invoiceEvents) return
@@ -457,6 +464,15 @@ export default function InvoicesPage() {
           </>
         )}
       </div>
+
+      {/* Pagination */}
+      {Math.ceil(total / PER_PAGE) > 1 && (
+        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 12, marginTop: 16, marginBottom: 8 }}>
+          <button className="btn btn-sm btn-ghost" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>← Prev</button>
+          <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>{page} / {Math.ceil(total / PER_PAGE)}</span>
+          <button className="btn btn-sm btn-ghost" disabled={page >= Math.ceil(total / PER_PAGE)} onClick={() => setPage(p => p + 1)}>Next →</button>
+        </div>
+      )}
 
       {/* ── Create Invoice Modal ──────────────────────── */}
       {showCreate && (
