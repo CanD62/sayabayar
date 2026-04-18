@@ -515,6 +515,7 @@ export async function adminRoutes(fastify) {
       client_id: i.clientId,
       client_name: i.client.name,
       client_email: i.client.email,
+      client_plan_name: i.client.subscriptions?.[0]?.plan?.name || 'Free',
       client_plan_type: i.client.subscriptions?.[0]?.plan?.planType || 'free',
       amount: Number(i.amount),
       unique_code: i.uniqueCode,
@@ -542,7 +543,19 @@ export async function adminRoutes(fastify) {
     const invoice = await db.invoice.findUnique({
       where: { id: request.params.id },
       include: {
-        client: { select: { id: true, name: true, email: true, role: true } },
+        client: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            role: true,
+            subscriptions: {
+              where: { status: 'active' },
+              include: { plan: true },
+              take: 1
+            }
+          }
+        },
         paymentChannel: {
           select: { id: true, channelType: true, accountName: true, accountNumber: true, channelOwner: true }
         },
@@ -567,6 +580,8 @@ export async function adminRoutes(fastify) {
       client_name: invoice.client?.name,
       client_email: invoice.client?.email,
       client_role: invoice.client?.role,
+      client_plan_name: invoice.client?.subscriptions?.[0]?.plan?.name || 'Free',
+      client_plan_type: invoice.client?.subscriptions?.[0]?.plan?.planType || 'free',
       customer_name: invoice.customerName,
       customer_email: invoice.customerEmail,
       amount: Number(invoice.amount),
@@ -2929,4 +2944,3 @@ export async function adminRoutes(fastify) {
     }
   })
 }
-

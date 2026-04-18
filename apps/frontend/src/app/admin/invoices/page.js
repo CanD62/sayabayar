@@ -140,6 +140,9 @@ export default function AdminInvoicesPage() {
                 <>
                   <div style={{ fontWeight: 600, fontSize: '0.82rem' }}>{inv.client_name}</div>
                   <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{inv.client_email}</div>
+                  <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+                    Plan: {inv.client_plan_name || 'Free'}
+                  </div>
                 </>
               ),
               customer: inv.customer_name || <span style={{ color: 'var(--text-muted)' }}>—</span>,
@@ -201,7 +204,15 @@ export default function AdminInvoicesPage() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: '0.82rem', marginBottom: 12 }}>
                   {[
                     ['Invoice', <span key="inv" className="font-mono">{detailData.invoice_number}</span>],
-                    ['Merchant', <span key="m">{detailData.client_name} <span style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>({detailData.client_email})</span></span>],
+                    [
+                      'Merchant',
+                      <span key="m">
+                        {detailData.client_name} <span style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>({detailData.client_email})</span>
+                        <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+                          Plan: {detailData.client_plan_name || 'Free'}
+                        </div>
+                      </span>
+                    ],
                     detailData.customer_name && ['Customer', detailData.customer_name],
                     detailData.customer_email && ['Email Customer', detailData.customer_email],
                     detailData.description && ['Deskripsi', detailData.description],
