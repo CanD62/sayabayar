@@ -537,6 +537,69 @@ export async function adminRoutes(fastify) {
     })
   })
 
+  // ── GET /admin/invoices/:id ─────────────────────────────
+  fastify.get('/invoices/:id', async (request, reply) => {
+    const invoice = await db.invoice.findUnique({
+      where: { id: request.params.id },
+      include: {
+        client: { select: { id: true, name: true, email: true, role: true } },
+        paymentChannel: {
+          select: { id: true, channelType: true, accountName: true, accountNumber: true, channelOwner: true }
+        },
+        transactions: {
+          select: {
+            id: true, amount: true, referenceNumber: true,
+            rawData: true, matchStatus: true, detectedAt: true
+          },
+          orderBy: { detectedAt: 'desc' }
+        }
+      }
+    })
+
+    if (!invoice) {
+      return reply.fail('INVOICE_NOT_FOUND', 'Invoice tidak ditemukan', 404)
+    }
+
+    return reply.success({
+      id: invoice.id,
+      invoice_number: invoice.invoiceNumber,
+      client_id: invoice.clientId,
+      client_name: invoice.client?.name,
+      client_email: invoice.client?.email,
+      client_role: invoice.client?.role,
+      customer_name: invoice.customerName,
+      customer_email: invoice.customerEmail,
+      amount: Number(invoice.amount),
+      amount_unique: Number(invoice.amountUnique),
+      unique_code: invoice.uniqueCode,
+      description: invoice.description,
+      status: invoice.status,
+      source: invoice.source,
+      channel_preference: invoice.channelPreference,
+      payment_url: invoice.paymentUrl,
+      redirect_url: invoice.redirectUrl || null,
+      payment_channel: invoice.paymentChannel ? {
+        id: invoice.paymentChannel.id,
+        channel_type: invoice.paymentChannel.channelType,
+        channel_owner: invoice.paymentChannel.channelOwner,
+        account_name: invoice.paymentChannel.accountName,
+        account_number: invoice.paymentChannel.accountNumber
+      } : null,
+      transactions: invoice.transactions.map(t => ({
+        id: t.id,
+        amount: Number(t.amount),
+        reference_number: t.referenceNumber,
+        raw_data: t.rawData ? JSON.parse(t.rawData) : null,
+        match_status: t.matchStatus,
+        detected_at: t.detectedAt
+      })),
+      expired_at: invoice.expiredAt,
+      paid_at: invoice.paidAt,
+      confirmed_at: invoice.confirmedAt,
+      created_at: invoice.createdAt
+    })
+  })
+
   // ── GET /admin/channels ──────────────────────────────────
   fastify.get('/channels', async (request, reply) => {
     const channels = await db.paymentChannel.findMany({

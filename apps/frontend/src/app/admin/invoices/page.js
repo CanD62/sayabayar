@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { api } from '@/lib/api'
-import { X, Search } from 'lucide-react'
+import { X, Search, Eye, ExternalLink } from 'lucide-react'
 import AdminTable from '@/components/AdminTable'
 
 const fmt = (n) => new Intl.NumberFormat('id-ID').format(Math.round(n))
@@ -23,6 +23,8 @@ export default function AdminInvoicesPage() {
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [searchInvoice, setSearchInvoice] = useState('')
+  const [detailData, setDetailData] = useState(null)
+  const [detailLoading, setDetailLoading] = useState(false)
   const PER_PAGE = 20
 
   const load = async (p = page) => {
@@ -41,6 +43,19 @@ export default function AdminInvoicesPage() {
 
   useEffect(() => { load(1); setPage(1) }, [filterStatus, dateFrom, dateTo, searchInvoice])
   useEffect(() => { load(page) }, [page])
+
+  const openDetail = async (inv) => {
+    setDetailLoading(true)
+    setDetailData({ ...inv, _loading: true })
+    try {
+      const res = await api.get(`/v1/admin/invoices/${inv.id}`)
+      setDetailData(res.data)
+    } catch {
+      setDetailData({ ...inv, _error: true })
+    } finally {
+      setDetailLoading(false)
+    }
+  }
 
   const totalPages = Math.ceil(total / PER_PAGE)
   const totalVolume = invoices.filter(i => i.status === 'paid').reduce((s, i) => s + i.amount, 0)
@@ -95,6 +110,7 @@ export default function AdminInvoicesPage() {
           { key: 'channel', label: 'Channel', hide: true },
           { key: 'status', label: 'Status' },
           { key: 'created', label: 'Dibuat' },
+          { key: 'action', label: '', hide: true },
         ]}
         data={invoices}
         loading={loading}
@@ -112,6 +128,7 @@ export default function AdminInvoicesPage() {
         renderRow={(inv) => {
           const sb = STATUS_BADGE[inv.status] || {}
           return {
+            onClick: () => openDetail(inv),
             cells: {
               invoice: (
                 <>
@@ -140,11 +157,125 @@ export default function AdminInvoicesPage() {
               ),
               status: <span className={`badge ${sb.cls}`}>{sb.label}</span>,
               created: <span className="text-sm text-muted">{new Date(inv.created_at).toLocaleString('id-ID')}</span>,
+              action: (
+                <button className="btn btn-sm" style={{ background: 'rgba(99,102,241,0.1)', color: '#818cf8', border: '1px solid rgba(99,102,241,0.2)' }}
+                  onClick={(e) => { e.stopPropagation(); openDetail(inv) }}>
+                  <Eye size={13} /> Detail
+                </button>
+              ),
             }
           }
         }}
         pagination={totalPages > 1 ? { page, totalPages, onPrev: () => setPage(p => p - 1), onNext: () => setPage(p => p + 1) } : null}
       />
+
+      {/* Detail Invoice Modal */}
+      {detailData && (
+        <div className="modal-overlay" onClick={() => setDetailData(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 600, padding: 24 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h3 className="modal-title" style={{ margin: 0 }}>Detail Invoice</h3>
+              <button className="btn btn-ghost btn-sm" onClick={() => setDetailData(null)}><X size={18} /></button>
+            </div>
+
+            {detailData._loading ? (
+              <div style={{ textAlign: 'center', padding: 32 }}><div className="spinner"></div></div>
+            ) : (
+              <>
+                {/* Amount Header */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, padding: '12px 16px', background: 'var(--bg-card-hover)', borderRadius: 10, border: '1px solid var(--border)' }}>
+                  <div>
+                    <div style={{ fontSize: '1.3rem', fontWeight: 800 }}>Rp {fmt(detailData.amount)}</div>
+                    {detailData.unique_code > 0 && (
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                        + kode unik Rp {fmt(detailData.unique_code)} = <strong>Rp {fmt(detailData.amount_unique)}</strong>
+                      </div>
+                    )}
+                  </div>
+                  <span className={`badge ${(STATUS_BADGE[detailData.status] || {}).cls}`}>
+                    {(STATUS_BADGE[detailData.status] || {}).label || detailData.status}
+                  </span>
+                </div>
+
+                {/* Info Rows */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: '0.82rem', marginBottom: 12 }}>
+                  {[
+                    ['Invoice', <span key="inv" className="font-mono">{detailData.invoice_number}</span>],
+                    ['Merchant', <span key="m">{detailData.client_name} <span style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>({detailData.client_email})</span></span>],
+                    detailData.customer_name && ['Customer', detailData.customer_name],
+                    detailData.customer_email && ['Email Customer', detailData.customer_email],
+                    detailData.description && ['Deskripsi', detailData.description],
+                    ['Sumber', <span key="s" className="badge badge-info" style={{ fontSize: '0.65rem' }}>{detailData.source || '-'}</span>],
+                    ['Preferensi', detailData.channel_preference],
+                    detailData.redirect_url && ['Redirect URL', <span key="r" className="font-mono" style={{ fontSize: '0.72rem', wordBreak: 'break-all' }}>{detailData.redirect_url}</span>],
+                    detailData.payment_url && ['Payment URL', <a key="p" href={detailData.payment_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: '0.72rem', color: 'var(--accent)', display: 'inline-flex', alignItems: 'center', gap: 4 }}><ExternalLink size={11} /> Buka</a>],
+                  ].filter(Boolean).map(([label, val], i) => (
+                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 0', borderBottom: '1px solid var(--border)' }}>
+                      <span style={{ color: 'var(--text-muted)', flexShrink: 0, marginRight: 12 }}>{label}</span>
+                      <span style={{ textAlign: 'right', fontWeight: 500 }}>{val}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Channel + Timing */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
+                  <div style={{ padding: 12, background: 'var(--bg-card-hover)', borderRadius: 10, border: '1px solid var(--border)' }}>
+                    <div style={{ fontWeight: 700, fontSize: '0.65rem', marginBottom: 8, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Channel</div>
+                    {detailData.payment_channel ? (
+                      <div style={{ fontSize: '0.78rem' }}>
+                        <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem' }}>{detailData.payment_channel.channel_type} ({detailData.payment_channel.channel_owner})</div>
+                        <div style={{ fontWeight: 700, marginTop: 2 }}>{detailData.payment_channel.account_name}</div>
+                        <div className="font-mono" style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>{detailData.payment_channel.account_number}</div>
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Belum dipilih</div>
+                    )}
+                  </div>
+                  <div style={{ padding: 12, background: 'var(--bg-card-hover)', borderRadius: 10, border: '1px solid var(--border)' }}>
+                    <div style={{ fontWeight: 700, fontSize: '0.65rem', marginBottom: 8, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Waktu</div>
+                    <div style={{ fontSize: '0.75rem', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      <div><span style={{ color: 'var(--text-muted)' }}>Dibuat: </span>{new Date(detailData.created_at).toLocaleString('id-ID')}</div>
+                      {detailData.confirmed_at && <div><span style={{ color: 'var(--text-muted)' }}>Konfirmasi: </span>{new Date(detailData.confirmed_at).toLocaleString('id-ID')}</div>}
+                      {detailData.paid_at && <div style={{ color: 'var(--success)', fontWeight: 600 }}>✓ Dibayar: {new Date(detailData.paid_at).toLocaleString('id-ID')}</div>}
+                      <div><span style={{ color: 'var(--text-muted)' }}>Expired: </span>{new Date(detailData.expired_at).toLocaleString('id-ID')}</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Transactions */}
+                {detailData.transactions?.length > 0 && (
+                  <div style={{ padding: 12, background: 'var(--bg-card-hover)', borderRadius: 10, border: '1px solid var(--border)', marginBottom: 12 }}>
+                    <div style={{ fontWeight: 700, fontSize: '0.65rem', marginBottom: 8, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Transaksi Terdeteksi</div>
+                    {detailData.transactions.map(t => (
+                      <div key={t.id} style={{ marginBottom: 8 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', marginBottom: 2 }}>
+                          <span style={{ fontWeight: 700 }}>Rp {fmt(t.amount)}</span>
+                          <span className={`badge badge-${t.match_status === 'matched' ? 'success' : 'warning'}`} style={{ fontSize: '0.6rem' }}>{t.match_status}</span>
+                        </div>
+                        {t.raw_data?.payer_name && <div style={{ fontSize: '0.78rem', fontWeight: 600 }}>Pengirim: {t.raw_data.payer_name}</div>}
+                        {t.reference_number && <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Ref: {t.reference_number}</div>}
+                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Terdeteksi: {new Date(t.detected_at).toLocaleString('id-ID')}</div>
+                        {t.raw_data && (
+                          <details style={{ marginTop: 4 }}>
+                            <summary style={{ cursor: 'pointer', fontSize: '0.7rem', color: 'var(--accent)' }}>Raw Data</summary>
+                            <pre style={{ fontSize: '0.65rem', marginTop: 4, padding: 8, borderRadius: 6, background: 'var(--bg-primary)', overflow: 'auto', maxHeight: 150, color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
+                              {JSON.stringify(t.raw_data, null, 2)}
+                            </pre>
+                          </details>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="modal-actions" style={{ marginTop: 8 }}>
+                  <button className="btn btn-ghost" onClick={() => setDetailData(null)}>Tutup</button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </>
   )
 }
