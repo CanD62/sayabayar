@@ -5,6 +5,12 @@ import jwt from 'jsonwebtoken'
 import { hashApiKey } from '@payment-gateway/shared/crypto'
 import { ERROR_CODES } from '@payment-gateway/shared/constants'
 
+function isSseTokenRoute(url = '') {
+  const path = String(url).split('?')[0]
+  if (path === '/v1/invoices/events' || path === '/v1/balance/events') return true
+  return /^\/v1\/pay\/[^/]+\/status$/.test(path)
+}
+
 /**
  * Authentication middleware — resolves client from JWT or API key
  * Sets request.client with client data
@@ -14,9 +20,10 @@ export async function authenticate(request, reply) {
 
   // ─── Try Bearer JWT first (header or ?token= for SSE/EventSource) ─
   const authHeader = request.headers.authorization
+  const tokenFromQuery = isSseTokenRoute(request.url) ? request.query?.token : null
   const rawToken = authHeader?.startsWith('Bearer ')
     ? authHeader.slice(7)
-    : request.query?.token   // EventSource can't set headers — use ?token=
+    : tokenFromQuery         // EventSource can't set headers — use ?token=
 
   if (rawToken) {
     try {

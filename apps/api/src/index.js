@@ -29,6 +29,21 @@ import { disbursementRoutes } from './routes/disbursements.js'
 
 const PORT = parseInt(process.env.API_PORT || '3001')
 
+function sanitizeUrlForLog(url = '') {
+  if (!url || !url.includes('?')) return url
+  try {
+    const base = 'http://localhost'
+    const u = new URL(url, base)
+    if (u.searchParams.has('token')) {
+      u.searchParams.set('token', '[REDACTED]')
+    }
+    const query = u.searchParams.toString()
+    return query ? `${u.pathname}?${query}` : u.pathname
+  } catch {
+    return String(url).replace(/([?&]token=)[^&]*/gi, '$1[REDACTED]')
+  }
+}
+
 // Helper: ambil IP real pengunjung dari header Cloudflare / proxy
 // Urutan prioritas: CF-Connecting-IP → X-Forwarded-For (first hop) → req.ip
 function getRealIp(req) {
@@ -51,7 +66,7 @@ async function buildApp() {
           const ip  = cf ?? xff ?? req.socket?.remoteAddress ?? '-'
           return {
             method: req.method,
-            url:    req.url,
+            url:    sanitizeUrlForLog(req.url),
             ip,
           }
         }

@@ -3,6 +3,21 @@ import fp from 'fastify-plugin'
 
 const WIB_OFFSET = 7 * 60 // GMT+7 in minutes
 
+function sanitizeUrlForLog(url = '') {
+  if (!url || !url.includes('?')) return url
+  try {
+    const base = 'http://localhost'
+    const u = new URL(url, base)
+    if (u.searchParams.has('token')) {
+      u.searchParams.set('token', '[REDACTED]')
+    }
+    const query = u.searchParams.toString()
+    return query ? `${u.pathname}?${query}` : u.pathname
+  } catch {
+    return String(url).replace(/([?&]token=)[^&]*/gi, '$1[REDACTED]')
+  }
+}
+
 /**
  * Convert Date to WIB ISO string (e.g. "2026-03-25T13:41:24.282+07:00")
  */
@@ -77,7 +92,7 @@ async function formatter(fastify) {
       success: false,
       error: {
         code: 'NOT_FOUND',
-        message: `Route ${request.method} ${request.url} tidak ditemukan`
+        message: `Route ${request.method} ${sanitizeUrlForLog(request.url)} tidak ditemukan`
       },
       meta: {
         request_id: request.id,
@@ -92,9 +107,9 @@ async function formatter(fastify) {
 
     // Log: hanya 5xx yang perlu level error, sisanya warn
     if (statusCode >= 500) {
-      request.log.error({ err: error, method: request.method, url: request.url }, 'Server error')
+      request.log.error({ err: error, method: request.method, url: sanitizeUrlForLog(request.url) }, 'Server error')
     } else {
-      request.log.warn({ statusCode, method: request.method, url: request.url, msg: error.message }, 'Client error')
+      request.log.warn({ statusCode, method: request.method, url: sanitizeUrlForLog(request.url), msg: error.message }, 'Client error')
     }
 
     // Fastify validation error (body/query/params schema mismatch)
