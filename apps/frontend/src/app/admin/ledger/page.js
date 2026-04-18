@@ -266,7 +266,7 @@ function TopupFlipModal({ open, onClose, defaultAmount, onSuccess }) {
         <div style={styles.modalHeader}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <div style={styles.iconCircle}><ArrowUpRight size={16} /></div>
-            <span style={{ fontWeight: 700, fontSize: '0.95rem' }}>Top Up Saldo Flip</span>
+            <span style={{ fontWeight: 700, fontSize: '0.95rem' }}>Top Up Saldo Provider</span>
           </div>
           <button onClick={onClose} style={styles.closeBtn}><X size={16} /></button>
         </div>
@@ -290,7 +290,7 @@ function TopupFlipModal({ open, onClose, defaultAmount, onSuccess }) {
             }}>
               <div>
                 <div style={{ fontSize: '0.65rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 2 }}>
-                  Saldo Flip Saat Ini
+                  Saldo Provider Saat Ini
                 </div>
                 {balanceLoading ? (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text-muted)', fontSize: '0.82rem' }}>
@@ -419,7 +419,7 @@ function TopupFlipModal({ open, onClose, defaultAmount, onSuccess }) {
               <div style={{ fontSize: '2rem', marginBottom: 8 }}>🎉</div>
               <div style={{ fontWeight: 700, fontSize: '1rem', color: '#10b981', marginBottom: 4 }}>Top Up Berhasil!</div>
               <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: 4 }}>
-                Saldo Flip telah bertambah Rp {fmt(topupData?.amount || 0)}
+                Saldo Provider telah bertambah Rp {fmt(topupData?.amount || 0)}
               </div>
               <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
                 Status: <span style={{ color: '#10b981', fontWeight: 700 }}>{topupData?.status}</span>

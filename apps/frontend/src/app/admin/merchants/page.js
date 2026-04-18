@@ -13,8 +13,8 @@ const STATUS_BADGE = {
   inactive:  { label: 'Inactive', cls: 'badge-warning' },
 }
 const PLAN_BADGE = {
-  free:         { label: 'Gratis',   cls: 'badge-info' },
-  subscription: { label: 'Berbayar', cls: 'badge-success' },
+  free:         { cls: 'badge-info' },
+  subscription: { cls: 'badge-success' },
 }
 
 const ROLE_BADGE = {
@@ -210,11 +210,11 @@ export default function AdminMerchantsPage() {
         cardAccent={(c) => c.status === 'active' ? '#10b981' : '#ef4444'}
         renderRow={(c) => {
           const sb = STATUS_BADGE[c.status] || {}
-          const pb = PLAN_BADGE[c.plan?.plan_type] || { label: '—', cls: '' }
+          const pb = PLAN_BADGE[c.plan?.plan_type || 'free'] || PLAN_BADGE.free
           return {
             cells: {
               merchant: (<><div style={{ fontWeight: 600 }}>{c.name}</div><div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{c.email}</div></>),
-              plan: <span className={`badge ${pb.cls}`}>{pb.label}</span>,
+              plan: <span className={`badge ${pb.cls}`}>{c.plan?.name || 'Free'}</span>,
               status: (
                 <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                   <span className={`badge ${sb.cls}`}>{sb.label}</span>
@@ -260,7 +260,7 @@ export default function AdminMerchantsPage() {
                     ['Phone', selected.phone || '—'],
                     ['Auth', selected.auth_provider],
                     ['Status', <span key="s" className={`badge ${STATUS_BADGE[selected.status]?.cls}`}>{STATUS_BADGE[selected.status]?.label}</span>],
-                    ['Plan', selected.subscriptions?.[0]?.plan_name || '—'],
+                    ['Plan', selected.subscriptions?.[0]?.plan_name || 'Free'],
                     ['Daftar', new Date(selected.created_at).toLocaleDateString('id-ID')],
                     ['Invoice', selected.counts?.invoices],
                   ].map(([label, val], i) => (

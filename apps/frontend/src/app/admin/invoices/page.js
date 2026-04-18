@@ -38,7 +38,7 @@ export default function AdminInvoicesPage() {
       if (filterStatus) params.set('status', filterStatus)
       if (dateFrom) params.set('date_from', dateFrom)
       if (dateTo) params.set('date_to', dateTo)
-      if (searchInvoice.trim()) params.set('invoice_number', searchInvoice.trim())
+      if (searchInvoice.trim()) params.set('search', searchInvoice.trim())
       const res = await api.get(`/v1/admin/invoices?${params}`)
       setInvoices(res.data)
       setTotal(res.pagination?.total || 0)
@@ -92,7 +92,7 @@ export default function AdminInvoicesPage() {
           style={{ padding: '8px 12px', border: '1px solid var(--border)', borderRadius: 10, background: 'var(--bg-input)', color: 'var(--text-primary)', fontSize: '0.82rem', minWidth: 0 }} />
         <div style={{ position: 'relative', flex: '1 1 180px', minWidth: 0 }}>
           <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
-          <input type="text" placeholder="Cari invoice..." value={searchInvoice} onChange={e => setSearchInvoice(e.target.value)}
+          <input type="text" placeholder="Cari invoice / nominal / kode unik..." value={searchInvoice} onChange={e => setSearchInvoice(e.target.value)}
             style={{ width: '100%', boxSizing: 'border-box', paddingLeft: 30, paddingRight: searchInvoice ? 30 : 10, paddingTop: 8, paddingBottom: 8, border: '1px solid var(--border)', borderRadius: 10, background: 'var(--bg-input)', color: 'var(--text-primary)', fontSize: '0.82rem', outline: 'none', fontFamily: 'var(--font-sans)' }} />
           {searchInvoice && <button onClick={() => setSearchInvoice('')} style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 0 }}><X size={12} /></button>}
         </div>

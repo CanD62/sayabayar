@@ -118,7 +118,7 @@ export default function AdminDashboard() {
         <StatCard icon={Receipt} label="Invoice Hari Ini" value={stats?.invoices.today} sub={`Bulan ini: ${fmt(stats?.invoices.this_month || 0)}`} color="#f59e0b" />
         <StatCard icon={TrendingUp} label="Volume Hari Ini" value={stats?.invoices.paid_today_volume} sub={`${fmt(stats?.invoices.paid_today_count || 0)} invoice lunas`} color="#10b981" prefix="Rp " />
         <StatCard icon={TrendingUp} label="Volume Bulan Ini" value={stats?.invoices.paid_month_volume} sub={`${fmt(stats?.invoices.paid_month_count || 0)} invoice lunas`} color="#10b981" prefix="Rp " />
-        <StatCard icon={Wallet} label="Saldo Flip" value={stats?.balances.flip_balance ?? '—'} sub={stats?.system.flip_email} color="#8b5cf6" prefix={stats?.balances.flip_balance != null ? 'Rp ' : ''} />
+        <StatCard icon={Wallet} label="Saldo Provider" value={stats?.balances.flip_balance ?? '—'} sub={stats?.system.flip_email} color="#8b5cf6" prefix={stats?.balances.flip_balance != null ? 'Rp ' : ''} />
         <StatCard icon={AlertCircle} label="Withdrawal Pending" value={stats?.withdrawals.pending_count} sub={`Volume bulan: Rp ${fmt(stats?.withdrawals.month_volume || 0)}`} color="#ef4444" />
         <StatCard icon={Building2} label="Channel Aktif" value={stats?.system.active_channels} color="#06b6d4" />
         <StatCard icon={Wallet} label="Saldo Merchant" value={stats?.balances.total_merchant_available} sub={`Pending: Rp ${fmt(stats?.balances.total_merchant_pending || 0)}`} color="#fbbf24" prefix="Rp " />

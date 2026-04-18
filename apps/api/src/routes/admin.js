@@ -468,6 +468,7 @@ export async function adminRoutes(fastify) {
           per_page: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
           status: { type: 'string', enum: ['pending', 'user_confirmed', 'paid', 'expired', 'cancelled'] },
           client_id: { type: 'string' },
+          search: { type: 'string' },
           invoice_number: { type: 'string' },
           date_from: { type: 'string' },
           date_to: { type: 'string' },
@@ -475,12 +476,21 @@ export async function adminRoutes(fastify) {
       }
     }
   }, async (request, reply) => {
-    const { page = 1, per_page = 20, status, client_id, invoice_number, date_from, date_to } = request.query
+    const { page = 1, per_page = 20, status, client_id, search, invoice_number, date_from, date_to } = request.query
+    const searchTerm = (search || invoice_number || '').trim()
+    const digitsOnly = searchTerm.replace(/\D/g, '')
+    const numericSearch = Number(digitsOnly)
+    const hasNumericSearch = digitsOnly.length > 0 && Number.isFinite(numericSearch)
 
     const where = {
       ...(status && { status }),
       ...(client_id && { clientId: client_id }),
-      ...(invoice_number && { invoiceNumber: { contains: invoice_number } }),
+      ...(searchTerm && {
+        OR: [
+          { invoiceNumber: { contains: searchTerm } },
+          ...(hasNumericSearch ? [{ amount: numericSearch }, { amountUnique: numericSearch }, { uniqueCode: numericSearch }] : []),
+        ]
+      }),
       ...(date_from || date_to ? {
         createdAt: {
           ...(date_from && { gte: new Date(date_from) }),
