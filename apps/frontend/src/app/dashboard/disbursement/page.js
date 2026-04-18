@@ -932,6 +932,7 @@ function DisbursementApiDocs() {
     { method: 'GET',  path: '/v1/disbursements/banks',   desc: 'List bank yang didukung' },
     { method: 'POST', path: '/v1/disbursements/inquiry',  desc: 'Cek nama pemilik rekening' },
     { method: 'POST', path: '/v1/disbursements/transfer', desc: 'Kirim transfer — fee Rp 2.500 (<250k) atau Rp 3.000 (≥250k)' },
+    { method: 'POST', path: '/v1/disbursements/transfer-in', desc: 'Transfer dari saldo merchant → saldo disbursement (min Rp 10.000)' },
     { method: 'GET',  path: '/v1/disbursements/:id',      desc: 'Detail & status transfer' },
     { method: 'GET',  path: '/v1/disbursements',          desc: 'Riwayat transfer (pagination)' },
   ]
@@ -967,7 +968,13 @@ curl "$BASE/disbursements/{id}" \\
 
 # ── Riwayat transfer
 curl "$BASE/disbursements?page=1&per_page=10" \\
-  -H "X-API-Key: $API_KEY"`
+  -H "X-API-Key: $API_KEY"
+
+# ── Transfer dari saldo merchant → saldo disbursement
+curl -X POST "$BASE/disbursements/transfer-in" \\
+  -H "Content-Type: application/json" \\
+  -H "X-API-Key: $API_KEY" \\
+  -d '{"amount": 100000}'`
 
   const nodeCode = `const API_KEY = 'sk_live_xxxx...'
 const BASE    = 'https://api.sayabayar.com/v1'
@@ -1003,7 +1010,15 @@ console.log('Transfer ID:', transfer.id, 'Status:', transfer.status)
 // ── Cek status transfer
 const detail = await fetch(\`\${BASE}/disbursements/\${transfer.id}\`, { headers })
 const { data: trx } = await detail.json()
-console.log('Status:', trx.status) // pending → processing → success`
+console.log('Status:', trx.status) // pending → processing → success
+
+// ── Transfer dari saldo merchant → saldo disbursement
+const tin = await fetch(\`\${BASE}/disbursements/transfer-in\`, {
+  method: 'POST', headers,
+  body: JSON.stringify({ amount: 100000 })
+})
+const { data: transferIn } = await tin.json()
+console.log('Transfer-in:', transferIn.amount, 'sisa:', transferIn.balance_available_after)`
 
   const phpCode = `<?php
 $api_key = 'sk_live_xxxx...';
@@ -1053,7 +1068,14 @@ echo "Status: "      . $tf['data']['status'] . "\\n";
 // ── Cek status transfer
 $id     = $tf['data']['id'];
 $detail = disbursementApi("$base/disbursements/$id", $api_key);
-echo "Status: " . $detail['data']['status'] . "\\n"; // pending → processing → success`
+echo "Status: " . $detail['data']['status'] . "\\n"; // pending → processing → success
+
+// ── Transfer dari saldo merchant → saldo disbursement
+$tin = disbursementApi("$base/disbursements/transfer-in", $api_key, [
+    CURLOPT_POST       => true,
+    CURLOPT_POSTFIELDS => json_encode(['amount' => 100000])
+]);
+echo "Transferred: Rp " . number_format($tin['data']['amount']) . "\\n";`
 
   const goCode = `package main
 
@@ -1113,6 +1135,12 @@ func main() {
 	detail := apiCall("GET", base+"/disbursements/"+data["id"].(string), nil)
 	fmt.Println("Status:", detail["data"].(map[string]interface{})["status"])
 	// pending → processing → success
+
+	// ── Transfer dari saldo merchant → saldo disbursement
+	tin := apiCall("POST", base+"/disbursements/transfer-in", map[string]interface{}{
+		"amount": 100000,
+	})
+	fmt.Println("Transferred:", tin["data"].(map[string]interface{})["amount"])
 }`
 
   const codes = { curl: curlCode, node: nodeCode, php: phpCode, go: goCode }
