@@ -475,7 +475,7 @@ export async function adminRoutes(fastify) {
     const where = {
       ...(status && { status }),
       ...(client_id && { clientId: client_id }),
-      ...(invoice_number && { invoiceNumber: invoice_number }),
+      ...(invoice_number && { invoiceNumber: { contains: invoice_number } }),
       ...(date_from || date_to ? {
         createdAt: {
           ...(date_from && { gte: new Date(date_from) }),
