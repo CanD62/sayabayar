@@ -250,6 +250,12 @@ export const WITHDRAW = {
   DEFAULT_FEE: 2_500
 }
 
+// Flip worker throttling (BullMQ limiter)
+export const FLIP = {
+  // Minimal jeda antar start job transfer agar tidak dianggap spam provider
+  MIN_JOB_INTERVAL_MS: 5_000
+}
+
 // Disbursement config
 export const DISBURSEMENT = {
   MIN_AMOUNT: 10_000,

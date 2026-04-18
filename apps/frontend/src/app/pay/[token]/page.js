@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useParams } from 'next/navigation'
 import LogoIcon from '@/components/LogoIcon'
 import QRCode from 'qrcode'
@@ -280,39 +280,41 @@ function PaidScreen({ invoice }) {
     if (!redirectUrl) return null
     try {
       const url = new URL(redirectUrl)
+      if (!['http:', 'https:'].includes(url.protocol)) return null
       url.searchParams.set('invoice_number', invoice.invoice_number || '')
       url.searchParams.set('status', 'paid')
       url.searchParams.set('amount', String(invoice.amount || 0))
       return url.toString()
     } catch {
-      // Invalid URL — append as query string manually
-      const sep = redirectUrl.includes('?') ? '&' : '?'
-      return `${redirectUrl}${sep}invoice_number=${encodeURIComponent(invoice.invoice_number || '')}&status=paid&amount=${invoice.amount || 0}`
+      return null
     }
   }, [redirectUrl, invoice])
+  const safeRedirectTarget = useMemo(() => buildRedirectUrl(), [buildRedirectUrl])
 
   const handleRedirect = useCallback(() => {
-    const url = buildRedirectUrl()
-    if (url) {
+    if (safeRedirectTarget) {
       setRedirecting(true)
-      window.location.href = url
+      window.location.href = safeRedirectTarget
     }
-  }, [buildRedirectUrl])
+  }, [safeRedirectTarget])
 
   useEffect(() => {
-    if (!redirectUrl || isSub) return
+    if (!safeRedirectTarget || isSub) return
     if (countdown <= 0) {
       handleRedirect()
       return
     }
     const timer = setTimeout(() => setCountdown(c => c - 1), 1000)
     return () => clearTimeout(timer)
-  }, [countdown, redirectUrl, isSub, handleRedirect])
+  }, [countdown, safeRedirectTarget, isSub, handleRedirect])
 
   // Extract merchant hostname for display
   let merchantHost = ''
   try {
-    merchantHost = new URL(redirectUrl).hostname
+    const parsed = new URL(redirectUrl)
+    if (['http:', 'https:'].includes(parsed.protocol)) {
+      merchantHost = parsed.hostname
+    }
   } catch {}
 
   return (
@@ -340,7 +342,7 @@ function PaidScreen({ invoice }) {
           )}
 
           {/* Redirect countdown — only when redirect_url is set and not subscription */}
-          {redirectUrl && !isSub && (
+          {safeRedirectTarget && !isSub && (
             <div className="pay2-redirect-section">
               <div className="pay2-redirect-info">
                 <span className="pay2-redirect-icon">🔄</span>

@@ -8,6 +8,17 @@ function generatePaymentToken() {
   return randomBytes(12).toString('base64url') // 16 chars, 96-bit entropy
 }
 
+function normalizeSafeRedirectUrl(rawUrl) {
+  if (!rawUrl) return null
+  try {
+    const url = new URL(rawUrl)
+    if (!['http:', 'https:'].includes(url.protocol)) return null
+    return url.toString()
+  } catch {
+    return null
+  }
+}
+
 /**
  * Generate unique invoice number: INV-YYYYMMDD-XXXX
  * Includes retry logic for collision handling under high traffic
@@ -120,6 +131,11 @@ export async function invoiceRoutes(fastify) {
     }
   }, async (request, reply) => {
     const { channel_preference = 'platform', amount, description, customer_name, customer_email, expired_minutes = 1440, redirect_url } = request.body
+    const safeRedirectUrl = normalizeSafeRedirectUrl(redirect_url)
+
+    if (redirect_url && !safeRedirectUrl) {
+      return reply.fail('VALIDATION_ERROR', 'redirect_url wajib menggunakan protokol http:// atau https://', 422)
+    }
 
     // ── Guard: platform channel invoice amount limit ──────────────
     // Siapapun yang pakai channel platform (free maupun Pro backup) dibatasi Rp 490.000 per invoice.
@@ -215,7 +231,7 @@ export async function invoiceRoutes(fastify) {
       description,
       source: request.authMethod === 'api_key' ? 'api' : 'dashboard',
       channelPreference: channel_preference,
-      redirectUrl: redirect_url || null,
+      redirectUrl: safeRedirectUrl,
       paymentUrl,
       paymentToken,
       expiredAt

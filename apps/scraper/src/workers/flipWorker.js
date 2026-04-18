@@ -9,8 +9,13 @@ import { Worker } from 'bullmq'
 import { getRedisConnection, QUEUE_PREFIX } from '../queues.js'
 import { getDb } from '@payment-gateway/shared/db'
 import { decrypt, encrypt } from '@payment-gateway/shared/crypto'
+import { FLIP } from '@payment-gateway/shared/constants'
 import * as flipClient from '../lib/flipClient.js'
 import * as flipBrowser from '../scrapers/flipBrowser.js'
+
+const SAFE_FLIP_JOB_INTERVAL_MS = Number.isFinite(FLIP.MIN_JOB_INTERVAL_MS) && FLIP.MIN_JOB_INTERVAL_MS > 0
+  ? FLIP.MIN_JOB_INTERVAL_MS
+  : 5000
 
 // ── Helpers ──────────────────────────────────────────────
 function decodeJwt(token) {
@@ -224,6 +229,10 @@ export function startFlipWorker() {
     connection: getRedisConnection(),
     prefix: QUEUE_PREFIX,
     concurrency: 1,         // Sequential — tidak boleh paralel ke Flip
+    limiter: {
+      max: 1,               // Max 1 job per duration window
+      duration: SAFE_FLIP_JOB_INTERVAL_MS
+    },
     stalledInterval: 60_000, // Cek stalled job setiap 60s
     maxStalledCount: 1       // Jika stalled 1x → mark failed, jangan retry otomatis
   })
@@ -238,7 +247,7 @@ export function startFlipWorker() {
     console.error(`[FlipWorker] Job ${job.id} failed (attempt ${job.attemptsMade}): ${err.message}`)
   })
 
-  console.log('[FlipWorker] Started — concurrency: 1 (sequential)')
+  console.log(`[FlipWorker] Started — concurrency: 1 (sequential), min interval: ${SAFE_FLIP_JOB_INTERVAL_MS}ms`)
   return worker
 }
 
@@ -437,4 +446,3 @@ async function markDisbursementFailed(db, disbursement, reason) {
     console.error(`[FlipWorker] Failed to mark disbursement ${disbursement.id} as failed:`, err.message)
   }
 }
-
