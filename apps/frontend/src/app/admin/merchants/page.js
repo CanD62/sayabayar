@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react'
 import { api } from '@/lib/api'
 import { useToast } from '@/components/Toast'
-import { Search, X, UserCheck, UserX, Star, ChevronRight, ShieldCheck, Send, Loader2, LogIn } from 'lucide-react'
+import { Search, X, UserCheck, UserX, Star, ChevronRight, ShieldCheck, Send, Loader2, LogIn, ArrowUpDown } from 'lucide-react'
 import AdminTable from '@/components/AdminTable'
 
 const fmt = (n) => new Intl.NumberFormat('id-ID').format(Math.round(n))
@@ -39,6 +39,7 @@ export default function AdminMerchantsPage() {
   const [filterStatus, setFilterStatus] = useState('')
   const [filterPlan, setFilterPlan] = useState('')
   const [filterRole, setFilterRole] = useState('')
+  const [sortKey, setSortKey] = useState('created_at:desc')
   const [selected, setSelected] = useState(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [actionLoading, setActionLoading] = useState(false)
@@ -55,13 +56,16 @@ export default function AdminMerchantsPage() {
       if (filterStatus) params.set('status', filterStatus)
       if (filterPlan) params.set('plan', filterPlan)
       if (filterRole) params.set('role', filterRole)
+      const [sort_by, sort_order] = sortKey.split(':')
+      params.set('sort_by', sort_by)
+      params.set('sort_order', sort_order)
       const res = await api.get(`/v1/admin/clients?${params}`)
       setClients(res.data)
       setTotal(res.pagination?.total || 0)
     } finally { setLoading(false) }
   }
 
-  useEffect(() => { load(1); setPage(1) }, [search, filterStatus, filterPlan, filterRole])
+  useEffect(() => { load(1); setPage(1) }, [search, filterStatus, filterPlan, filterRole, sortKey])
   useEffect(() => { load(page) }, [page])
   useEffect(() => { api.get('/v1/admin/plans').then(r => setPlans(r.data || [])).catch(() => {}) }, [])
 
@@ -164,6 +168,17 @@ export default function AdminMerchantsPage() {
           <option value="">Semua Role</option>
           <option value="merchant">Merchant</option>
           <option value="disbursement_user">Disbursement</option>
+        </select>
+        <select value={sortKey} onChange={e => setSortKey(e.target.value)}
+          style={{ padding: '8px 12px', border: '1px solid var(--border)', borderRadius: 10, background: 'var(--bg-input)', color: 'var(--text-primary)', fontSize: '0.82rem', cursor: 'pointer', minWidth: 0 }}>
+          <option value="created_at:desc">Terbaru</option>
+          <option value="created_at:asc">Terlama</option>
+          <option value="name:asc">Nama A-Z</option>
+          <option value="name:desc">Nama Z-A</option>
+          <option value="balance:desc">Saldo ↑</option>
+          <option value="balance:asc">Saldo ↓</option>
+          <option value="invoice_count:desc">Invoice ↑</option>
+          <option value="invoice_count:asc">Invoice ↓</option>
         </select>
       </div>
 

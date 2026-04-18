@@ -195,11 +195,13 @@ export async function adminRoutes(fastify) {
           plan: { type: 'string', enum: ['free', 'subscription'] },
           role: { type: 'string', enum: ['merchant', 'disbursement_user'] },
           search: { type: 'string', maxLength: 100 },
+          sort_by: { type: 'string', enum: ['created_at', 'name', 'balance', 'invoice_count'], default: 'created_at' },
+          sort_order: { type: 'string', enum: ['asc', 'desc'], default: 'desc' },
         }
       }
     }
   }, async (request, reply) => {
-    const { page = 1, per_page = 20, status, plan, role, search } = request.query
+    const { page = 1, per_page = 20, status, plan, role, search, sort_by = 'created_at', sort_order = 'desc' } = request.query
 
     const where = {
       id: { not: 'platform-owner-000000000000000' },
@@ -233,7 +235,10 @@ export async function adminRoutes(fastify) {
           balance: { select: { balanceAvailable: true, balancePending: true, totalEarned: true } },
           _count: { select: { invoices: true, paymentChannels: true } },
         },
-        orderBy: { createdAt: 'desc' },
+        orderBy: sort_by === 'name' ? { name: sort_order }
+          : sort_by === 'balance' ? { balance: { balanceAvailable: sort_order } }
+          : sort_by === 'invoice_count' ? { invoices: { _count: sort_order } }
+          : { createdAt: sort_order },
         skip: (page - 1) * per_page,
         take: per_page,
       }),
