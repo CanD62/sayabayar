@@ -112,9 +112,9 @@ export function startMatchWorker(concurrency = 5) {
         // ── Platform channel: masuk pending, settle H+2 ──────────────
         const invoiceAmount = Number(invoice.amount)
 
-        // MDR 0.4% deduction for Disbursement Pro (invoice > 490k via QRIS platform)
+        // MDR 0.4% deduction for Disbursement Pro (invoice > 500k via QRIS platform)
         const isDisbursementPro = invoice.client?.role === 'disbursement_user' && (invoice.client?.subscriptions?.length > 0)
-        const MDR_THRESHOLD = 490_000
+        const MDR_THRESHOLD = 500_000
         const MDR_RATE = 0.004 // 0.4%
         let mdrDeduction = 0
 
