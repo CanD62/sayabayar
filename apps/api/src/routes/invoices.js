@@ -125,8 +125,11 @@ export async function invoiceRoutes(fastify) {
     // Siapapun yang pakai channel platform (free maupun Pro backup) dibatasi Rp 490.000 per invoice.
     // Angka ini memastikan total bayar (amount + kode unik max 999) selalu < Rp 500.000,
     // sehingga QRIS MDR 0% dan platform tidak tekor.
+    // Exception: Disbursement Pro → unlimited, tapi MDR 0.4% dipotong dari settlement.
     const activePlan = getActivePlan(request.client)
-    if (channel_preference === 'platform' && amount > INVOICE.FREE_TIER_MAX_AMOUNT) {
+    const isDisbursementPro = request.client.role === 'disbursement_user' && !!activePlan
+
+    if (channel_preference === 'platform' && amount > INVOICE.FREE_TIER_MAX_AMOUNT && !isDisbursementPro) {
       const msg = activePlan
         ? `Channel platform hanya mendukung invoice hingga Rp ${INVOICE.FREE_TIER_MAX_AMOUNT.toLocaleString('id-ID')}. Gunakan channel sendiri untuk nominal lebih besar.`
         : `Plan Gratis hanya mendukung invoice hingga Rp ${INVOICE.FREE_TIER_MAX_AMOUNT.toLocaleString('id-ID')}. Upgrade ke Pro untuk nominal lebih besar.`

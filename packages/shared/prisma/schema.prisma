@@ -322,6 +322,7 @@ enum BalanceLedgerType {
   credit_pending
   credit_available
   debit_withdraw
+  mdr_fee
 }
 
 // ─── WITHDRAWALS ──────────────────────────────────────────
