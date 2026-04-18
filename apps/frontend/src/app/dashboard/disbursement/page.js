@@ -832,6 +832,14 @@ const RESPONSE_DATA = {
     "created_at": "2026-04-16T00:00:00.000+07:00"
   }
 }`,
+  'POST /transfer-in': `{
+  "success": true,
+  "data": {
+    "amount": 100000,
+    "message": "Berhasil memindahkan Rp 100.000 ke saldo disbursement.",
+    "balance_available_after": 400000
+  }
+}`,
   'GET /:id': `{
   "success": true,
   "data": {
