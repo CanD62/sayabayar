@@ -13,6 +13,10 @@ const STATUS_BADGE = {
   expired:        { label: 'Expired',    cls: 'badge-danger' },
   cancelled:      { label: 'Batal',      cls: 'badge-danger' },
 }
+const PLAN_BADGE = {
+  free:         { cls: 'badge-info' },
+  subscription: { cls: 'badge-success' },
+}
 
 export default function AdminInvoicesPage() {
   const [invoices, setInvoices] = useState([])
@@ -59,6 +63,7 @@ export default function AdminInvoicesPage() {
 
   const totalPages = Math.ceil(total / PER_PAGE)
   const totalVolume = invoices.filter(i => i.status === 'paid').reduce((s, i) => s + i.amount, 0)
+  const detailPlanBadge = PLAN_BADGE[detailData?.client_plan_type || 'free'] || PLAN_BADGE.free
 
   return (
     <>
@@ -127,6 +132,7 @@ export default function AdminInvoicesPage() {
         cardAccent={(inv) => inv.status === 'paid' ? '#10b981' : inv.status === 'expired' ? '#ef4444' : inv.status === 'pending' ? '#f59e0b' : '#6366f1'}
         renderRow={(inv) => {
           const sb = STATUS_BADGE[inv.status] || {}
+          const pb = PLAN_BADGE[inv.client_plan_type || 'free'] || PLAN_BADGE.free
           return {
             onClick: () => openDetail(inv),
             cells: {
@@ -140,8 +146,8 @@ export default function AdminInvoicesPage() {
                 <>
                   <div style={{ fontWeight: 600, fontSize: '0.82rem' }}>{inv.client_name}</div>
                   <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{inv.client_email}</div>
-                  <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
-                    Plan: {inv.client_plan_name || 'Free'}
+                  <div style={{ marginTop: 2 }}>
+                    <span className={`badge ${pb.cls}`}>{inv.client_plan_name || 'Free'}</span>
                   </div>
                 </>
               ),
@@ -208,8 +214,8 @@ export default function AdminInvoicesPage() {
                       'Merchant',
                       <span key="m">
                         {detailData.client_name} <span style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>({detailData.client_email})</span>
-                        <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
-                          Plan: {detailData.client_plan_name || 'Free'}
+                        <div style={{ marginTop: 4 }}>
+                          <span className={`badge ${detailPlanBadge.cls}`}>{detailData.client_plan_name || 'Free'}</span>
                         </div>
                       </span>
                     ],
