@@ -109,11 +109,11 @@ export function startMatchWorker(concurrency = 5) {
         // Tidak perlu insert balanceLedger maupun update clientBalance.
         console.log(`[MatchWorker] Own-channel invoice ${invoice.invoiceNumber} — skip balance ledger (dana ke rekening sendiri)`)
       } else {
-        // ── Platform channel: masuk pending, settle H+2 ──────────────
+        // ── Platform channel settlement ──────────────────────────────
         const invoiceAmount = Number(invoice.amount)
+        const isDisbursementPro = invoice.client?.role === 'disbursement_user' && (invoice.client?.subscriptions?.length > 0)
 
         // MDR 0.4% deduction for Disbursement Pro (invoice > 500k via QRIS platform)
-        const isDisbursementPro = invoice.client?.role === 'disbursement_user' && (invoice.client?.subscriptions?.length > 0)
         const MDR_THRESHOLD = 500_000
         const MDR_RATE = 0.004 // 0.4%
         let mdrDeduction = 0
@@ -124,28 +124,63 @@ export function startMatchWorker(concurrency = 5) {
 
         const creditAmount = invoiceAmount - mdrDeduction
 
-        txOps.push(
-          db.balanceLedger.create({
-            data: {
-              clientId: invoice.clientId,
-              invoiceId: invoice.id,
-              type: 'credit_pending',
-              amount: creditAmount,
-              availableAt: settlementDate,
-              note: mdrDeduction > 0
-                ? `Invoice ${invoice.invoiceNumber} — settlement H+2 (MDR 0.4%: -Rp ${mdrDeduction.toLocaleString('id-ID')})`
-                : `Invoice ${invoice.invoiceNumber} — settlement H+2`
-            }
-          }),
+        if (isDisbursementPro) {
+          // ── Disbursement Pro: langsung available (instan) ───────────
+          txOps.push(
+            db.balanceLedger.create({
+              data: {
+                clientId: invoice.clientId,
+                invoiceId: invoice.id,
+                type: 'credit_available',
+                amount: creditAmount,
+                availableAt: now,
+                settledAt: now,
+                note: mdrDeduction > 0
+                  ? `Invoice ${invoice.invoiceNumber} — instan (MDR 0.4%: -Rp ${mdrDeduction.toLocaleString('id-ID')})`
+                  : `Invoice ${invoice.invoiceNumber} — instan (disbursement pro)`
+              }
+            }),
 
-          db.clientBalance.update({
-            where: { clientId: invoice.clientId },
-            data: {
-              balancePending: { increment: creditAmount },
-              totalEarned:    { increment: creditAmount }
-            }
-          })
-        )
+            db.clientBalance.upsert({
+              where: { clientId: invoice.clientId },
+              create: {
+                clientId: invoice.clientId,
+                balanceAvailable: creditAmount,
+                totalEarned: creditAmount,
+              },
+              update: {
+                balanceAvailable: { increment: creditAmount },
+                totalEarned:      { increment: creditAmount }
+              }
+            })
+          )
+
+          console.log(`[MatchWorker] Balance credited: type=credit_available (instant, disbursement_pro) amount=${creditAmount}${mdrDeduction > 0 ? ` (MDR: -${mdrDeduction})` : ''}`)
+        } else {
+          // ── Regular / Disbursement Free: masuk pending, settle H+2 ──
+          txOps.push(
+            db.balanceLedger.create({
+              data: {
+                clientId: invoice.clientId,
+                invoiceId: invoice.id,
+                type: 'credit_pending',
+                amount: creditAmount,
+                availableAt: settlementDate,
+                note: `Invoice ${invoice.invoiceNumber} — settlement H+2`
+              }
+            }),
+
+            db.clientBalance.update({
+              where: { clientId: invoice.clientId },
+              data: {
+                balancePending: { increment: creditAmount },
+                totalEarned:    { increment: creditAmount }
+              }
+            })
+          )
+
+          console.log(`[MatchWorker] Balance credited: type=credit_pending owner=platform amount=${creditAmount}`)
+        }
 
         // Record MDR as platform revenue if applicable
         if (mdrDeduction > 0) {
@@ -164,8 +199,6 @@ export function startMatchWorker(concurrency = 5) {
           )
           console.log(`[MatchWorker] MDR 0.4% deducted: Rp ${mdrDeduction} from invoice ${invoice.invoiceNumber}`)
         }
-
-        console.log(`[MatchWorker] Balance credited: type=credit_pending owner=platform amount=${creditAmount}${mdrDeduction > 0 ? ` (MDR: -${mdrDeduction})` : ''}`)
       }
     }
 

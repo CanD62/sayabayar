@@ -2953,4 +2953,68 @@ export async function adminRoutes(fastify) {
       return reply.fail('FLIP_ERROR', `Gagal cek Flip: ${e.message}`, 502)
     }
   })
+
+  // ── POST /admin/fix/disbursement-pro-settlement ─────────
+  // Koreksi settlement Disbursement Pro yang terlanjur masuk credit_pending
+  fastify.post('/fix/disbursement-pro-settlement', async (request, reply) => {
+    const proClients = await db.client.findMany({
+      where: {
+        role: 'disbursement_user',
+        subscriptions: { some: { status: 'active' } }
+      },
+      select: { id: true, name: true, email: true }
+    })
+
+    if (proClients.length === 0) {
+      return reply.success({ fixed: 0, message: 'Tidak ada Disbursement Pro user.' })
+    }
+
+    const proIds = proClients.map(c => c.id)
+
+    const wrongEntries = await db.balanceLedger.findMany({
+      where: {
+        clientId: { in: proIds },
+        type: 'credit_pending',
+        settledAt: null
+      },
+      include: { invoice: { select: { invoiceNumber: true } } }
+    })
+
+    if (wrongEntries.length === 0) {
+      return reply.success({ fixed: 0, message: 'Tidak ada entry yang perlu dikoreksi.' })
+    }
+
+    const now = new Date()
+    let fixed = 0
+
+    for (const entry of wrongEntries) {
+      const amount = Number(entry.amount)
+      await db.$transaction([
+        db.balanceLedger.update({
+          where: { id: entry.id },
+          data: {
+            type: 'credit_available',
+            availableAt: now,
+            settledAt: now,
+            note: (entry.note || '').replace('settlement H+2', 'instan (koreksi disbursement pro)') || 'Koreksi: instan (disbursement pro)'
+          }
+        }),
+        db.clientBalance.update({
+          where: { clientId: entry.clientId },
+          data: {
+            balancePending:   { decrement: amount },
+            balanceAvailable: { increment: amount }
+          }
+        })
+      ])
+      fixed++
+      fastify.log.info(`[Fix] ${entry.invoice?.invoiceNumber || entry.id} — Rp ${amount} → credit_available`)
+    }
+
+    return reply.success({
+      fixed,
+      clients: proClients.map(c => c.name),
+      message: `${fixed} entry dikoreksi dari credit_pending → credit_available.`
+    })
+  })
 }
