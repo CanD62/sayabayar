@@ -133,6 +133,16 @@ export default function AdminInvoicesPage() {
         renderRow={(inv) => {
           const sb = STATUS_BADGE[inv.status] || {}
           const pb = PLAN_BADGE[inv.client_plan_type || 'free'] || PLAN_BADGE.free
+          const detailButton = (
+            <button
+              className="btn btn-sm"
+              style={{ background: 'rgba(99,102,241,0.1)', color: '#818cf8', border: '1px solid rgba(99,102,241,0.2)' }}
+              onClick={(e) => { e.stopPropagation(); openDetail(inv) }}
+            >
+              <Eye size={13} /> Detail
+            </button>
+          )
+
           return {
             onClick: () => openDetail(inv),
             cells: {
@@ -166,13 +176,9 @@ export default function AdminInvoicesPage() {
               ),
               status: <span className={`badge ${sb.cls}`}>{sb.label}</span>,
               created: <span className="text-sm text-muted">{new Date(inv.created_at).toLocaleString('id-ID')}</span>,
-              action: (
-                <button className="btn btn-sm" style={{ background: 'rgba(99,102,241,0.1)', color: '#818cf8', border: '1px solid rgba(99,102,241,0.2)' }}
-                  onClick={(e) => { e.stopPropagation(); openDetail(inv) }}>
-                  <Eye size={13} /> Detail
-                </button>
-              ),
-            }
+              action: detailButton,
+            },
+            actions: detailButton,
           }
         }}
         pagination={totalPages > 1 ? { page, totalPages, onPrev: () => setPage(p => p - 1), onNext: () => setPage(p => p + 1) } : null}
