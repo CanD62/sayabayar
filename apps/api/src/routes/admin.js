@@ -11,15 +11,19 @@ import { Queue } from 'bullmq'
 const ENV = process.env.NODE_ENV || 'development'
 const QUEUE_PREFIX = ENV === 'production' ? 'bull' : `bull:${ENV}`
 
-function getFlipQueue() {
+function getQueueConnection() {
   const url = new URL(process.env.REDIS_URL || 'redis://localhost:6379')
+  return {
+    host: url.hostname,
+    port: parseInt(url.port) || 6379,
+    password: url.password || undefined,
+    maxRetriesPerRequest: null
+  }
+}
+
+function getFlipQueue() {
   return new Queue('flip', {
-    connection: {
-      host: url.hostname,
-      port: parseInt(url.port) || 6379,
-      password: url.password || undefined,
-      maxRetriesPerRequest: null
-    },
+    connection: getQueueConnection(),
     prefix: QUEUE_PREFIX,
   })
 }
@@ -27,6 +31,10 @@ function getFlipQueue() {
 export async function adminRoutes(fastify) {
   const db = fastify.db
   const flipQueue = getFlipQueue()
+  const queueConnection = getQueueConnection()
+  const scrapeQueue = new Queue('scrape', { connection: queueConnection, prefix: QUEUE_PREFIX })
+  const matchQueue = new Queue('match', { connection: queueConnection, prefix: QUEUE_PREFIX })
+  const webhookQueue = new Queue('webhook', { connection: queueConnection, prefix: QUEUE_PREFIX })
 
   // ── Shared helpers ──────────────────────────────────────
   // JWT decode — alias dari shared/flip (decodeJwtPayload)
@@ -41,6 +49,88 @@ export async function adminRoutes(fastify) {
   fastify.addHook('preHandler', authenticate)
   fastify.addHook('preHandler', checkClientStatus)
   fastify.addHook('preHandler', isAdmin)
+
+  // ── GET /admin/queue-health ─────────────────────────────
+  // Queue + worker health snapshot (BullMQ + Redis)
+  fastify.get('/queue-health', async (_request, reply) => {
+    const startedAt = Date.now()
+    const queues = [
+      ['scrape', scrapeQueue],
+      ['match', matchQueue],
+      ['webhook', webhookQueue],
+      ['flip', flipQueue]
+    ]
+
+    let redisStatus = 'up'
+    let redisLatencyMs = null
+    try {
+      const t0 = Date.now()
+      await fastify.redis.ping()
+      redisLatencyMs = Date.now() - t0
+    } catch {
+      redisStatus = 'down'
+    }
+
+    const queueSnapshots = await Promise.all(queues.map(async ([name, queue]) => {
+      try {
+        const counts = await queue.getJobCounts('waiting', 'active', 'delayed', 'failed', 'completed', 'paused')
+        const failedJobs = await queue.getJobs(['failed'], 0, 2, true)
+        const pending = Number(counts.waiting || 0) + Number(counts.active || 0) + Number(counts.delayed || 0)
+        const failed = Number(counts.failed || 0)
+        const state = failed > 0 ? 'warning' : pending > 0 ? 'busy' : 'idle'
+
+        return {
+          queue: name,
+          state,
+          counts: {
+            waiting: Number(counts.waiting || 0),
+            active: Number(counts.active || 0),
+            delayed: Number(counts.delayed || 0),
+            failed: failed,
+            completed: Number(counts.completed || 0),
+            paused: Number(counts.paused || 0),
+          },
+          failed_samples: failedJobs.map(j => ({
+            id: String(j.id),
+            name: j.name,
+            failed_reason: j.failedReason || null,
+            attempts_made: Number(j.attemptsMade || 0),
+            timestamp: j.timestamp ? new Date(j.timestamp).toISOString() : null,
+            finished_on: j.finishedOn ? new Date(j.finishedOn).toISOString() : null,
+          }))
+        }
+      } catch (err) {
+        return {
+          queue: name,
+          state: 'down',
+          error: err.message || 'QUEUE_UNREACHABLE',
+          counts: { waiting: 0, active: 0, delayed: 0, failed: 0, completed: 0, paused: 0 },
+          failed_samples: []
+        }
+      }
+    }))
+
+    const summary = queueSnapshots.reduce((acc, q) => {
+      acc.waiting += q.counts.waiting
+      acc.active += q.counts.active
+      acc.delayed += q.counts.delayed
+      acc.failed += q.counts.failed
+      acc.completed += q.counts.completed
+      return acc
+    }, { waiting: 0, active: 0, delayed: 0, failed: 0, completed: 0 })
+
+    return reply.success({
+      generated_at: new Date().toISOString(),
+      latency_ms: Date.now() - startedAt,
+      queue_prefix: QUEUE_PREFIX,
+      redis: {
+        status: redisStatus,
+        latency_ms: redisLatencyMs,
+      },
+      summary,
+      queues: queueSnapshots,
+    })
+  })
 
   // ── GET /admin/stats ─────────────────────────────────────
   // Platform-wide overview stats

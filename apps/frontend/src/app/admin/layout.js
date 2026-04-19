@@ -23,6 +23,7 @@ const ADMIN_NAV = [
   { href: '/admin/channels',     label: 'Channel',      icon: Building2 },
   { href: '/admin/ledger',       label: 'Ledger',       icon: BookOpen },
   { href: '/admin/scraping-logs',label: 'Scraping Log',  icon: Activity },
+  { href: '/admin/queue-health', label: 'Queue Health',  icon: Activity },
   { href: '/admin/webhook-logs', label: 'Webhook Log',  icon: Send },
   { href: '/admin/settings',     label: 'Pengaturan',   icon: Settings },
 ]
