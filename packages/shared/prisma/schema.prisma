@@ -39,6 +39,7 @@ model Client {
   disbursementBalance DisbursementBalance?
   disbursementDeposits DisbursementDeposit[]
   disbursements       Disbursement[]
+  adminFixAuditLogs   AdminFixAuditLog[]
 
   @@map("clients")
 }
@@ -544,4 +545,38 @@ enum DisbursementStatus {
 enum DisbursementSource {
   dashboard
   api
+}
+
+// ─── ADMIN FIX AUDIT LOGS ────────────────────────────────
+
+model AdminFixAuditLog {
+  id             String         @id @default(uuid()) @db.Char(36)
+  adminId        String         @map("admin_id") @db.Char(36)
+  issueId        String         @map("issue_id") @db.VarChar(100)
+  issueType      String         @map("issue_type") @db.VarChar(120)
+  action         AdminFixAction
+  entityType     String         @map("entity_type") @db.VarChar(50)
+  entityId       String         @map("entity_id") @db.Char(36)
+  beforeSnapshot Json?          @map("before_snapshot")
+  afterSnapshot  Json?          @map("after_snapshot")
+  status         AdminFixStatus
+  errorMessage   String?        @map("error_message") @db.Text
+  idempotencyKey String?        @unique @map("idempotency_key") @db.VarChar(120)
+  createdAt      DateTime       @default(now()) @map("created_at")
+
+  admin Client @relation(fields: [adminId], references: [id])
+
+  @@index([issueType, createdAt], name: "idx_admin_fix_issue_time")
+  @@index([entityType, entityId, createdAt], name: "idx_admin_fix_entity_time")
+  @@map("admin_fix_audit_logs")
+}
+
+enum AdminFixAction {
+  dry_run
+  execute
+}
+
+enum AdminFixStatus {
+  success
+  failed
 }

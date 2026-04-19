@@ -48,6 +48,7 @@ export async function adminRoutes(fastify) {
   const RECON_MAX_FETCH = 300
   const RECON_STALE_MINUTES = 30
   const RECON_PRELAUNCH_CUTOFF = new Date(process.env.RECON_PRELAUNCH_CUTOFF || '2026-04-03T00:00:00+07:00')
+  const RECON_FIXABLE_ISSUE = 'INVOICE_PAID_MISSING_LEDGER_CREDIT'
 
   function toIso(dt) {
     return dt ? new Date(dt).toISOString() : new Date().toISOString()
@@ -299,6 +300,186 @@ export async function adminRoutes(fastify) {
     return [...issuesA, ...issuesB, ...issuesC]
   }
 
+  function reconError(code, message, statusCode = 422) {
+    const err = new Error(message)
+    err.code = code
+    err.statusCode = statusCode
+    return err
+  }
+
+  function parseIssueId(issueId = '') {
+    if (!issueId) return null
+    if (issueId.startsWith('inv-ledger-missing:')) {
+      return {
+        issueType: RECON_FIXABLE_ISSUE,
+        entityType: 'invoice',
+        entityId: issueId.slice('inv-ledger-missing:'.length)
+      }
+    }
+    return null
+  }
+
+  function buildInvoiceLedgerPlan(invoice, now = new Date()) {
+    const invoiceAmount = Number(invoice.amount || 0)
+    const isDisbursementPro = invoice.client?.role === 'disbursement_user' && (invoice.client?.subscriptions?.length > 0)
+
+    if (isDisbursementPro) {
+      const MDR_THRESHOLD = 500_000
+      const MDR_RATE = 0.004
+      const mdrDeduction = invoiceAmount > MDR_THRESHOLD
+        ? Math.round(invoiceAmount * MDR_RATE)
+        : 0
+      const creditAmount = invoiceAmount - mdrDeduction
+
+      return {
+        settlement_mode: 'instant',
+        ledger_type: 'credit_available',
+        ledger_amount: creditAmount,
+        ledger_available_at: now.toISOString(),
+        ledger_settled_at: now.toISOString(),
+        ledger_note: mdrDeduction > 0
+          ? `Recon fix — Invoice ${invoice.invoiceNumber} — instan (MDR 0.4%: -Rp ${mdrDeduction.toLocaleString('id-ID')})`
+          : `Recon fix — Invoice ${invoice.invoiceNumber} — instan (disbursement pro)`,
+        balance_delta: {
+          balancePending: 0,
+          balanceAvailable: creditAmount,
+          totalEarned: creditAmount
+        },
+        mdr_fee: mdrDeduction > 0
+          ? {
+            amount: mdrDeduction,
+            note: `MDR 0.4% — Invoice ${invoice.invoiceNumber} (reconciliation fix, Rp ${invoiceAmount.toLocaleString('id-ID')})`
+          }
+          : null
+      }
+    }
+
+    const settlementDate = new Date(now.getTime() + 2 * 24 * 60 * 60_000)
+    return {
+      settlement_mode: 'h_plus_2',
+      ledger_type: 'credit_pending',
+      ledger_amount: invoiceAmount,
+      ledger_available_at: settlementDate.toISOString(),
+      ledger_settled_at: null,
+      ledger_note: `Recon fix — Invoice ${invoice.invoiceNumber} — settlement H+2`,
+      balance_delta: {
+        balancePending: invoiceAmount,
+        balanceAvailable: 0,
+        totalEarned: invoiceAmount
+      },
+      mdr_fee: null
+    }
+  }
+
+  async function buildInvoiceLedgerFixPreview({ issueId, issueType, invoiceId, invoiceNumber }) {
+    const parsedIssue = parseIssueId(issueId)
+    const resolvedIssueType = issueType || parsedIssue?.issueType || RECON_FIXABLE_ISSUE
+
+    if (resolvedIssueType !== RECON_FIXABLE_ISSUE) {
+      throw reconError('UNSUPPORTED_ISSUE', `Issue "${resolvedIssueType}" belum didukung untuk fix otomatis`, 422)
+    }
+
+    const targetInvoiceId = invoiceId || parsedIssue?.entityId || null
+    const targetInvoiceNumber = invoiceNumber || null
+    if (!targetInvoiceId && !targetInvoiceNumber) {
+      throw reconError('VALIDATION_ERROR', 'issue_id atau invoice_id atau invoice_number harus diisi', 422)
+    }
+
+    const where = targetInvoiceId ? { id: targetInvoiceId } : { invoiceNumber: targetInvoiceNumber }
+    const invoice = await db.invoice.findUnique({
+      where,
+      include: {
+        paymentChannel: { select: { id: true, channelOwner: true, channelType: true } },
+        client: {
+          select: {
+            id: true,
+            name: true,
+            role: true,
+            subscriptions: {
+              where: { status: 'active' },
+              select: { id: true },
+              take: 1
+            }
+          }
+        },
+        balanceLedger: {
+          where: { type: { in: ['credit_pending', 'credit_available'] } },
+          select: { id: true, type: true, amount: true, createdAt: true }
+        }
+      }
+    })
+
+    if (!invoice) throw reconError('INVOICE_NOT_FOUND', 'Invoice tidak ditemukan', 404)
+    if (invoice.status !== 'paid') throw reconError('VALIDATION_ERROR', 'Invoice belum berstatus paid', 422)
+    if (invoice.invoiceNumber.startsWith('SUB-')) throw reconError('VALIDATION_ERROR', 'Invoice langganan (SUB-) tidak menggunakan ledger kredit merchant', 422)
+    if (!invoice.paymentChannel || invoice.paymentChannel.channelOwner !== 'platform') {
+      throw reconError('VALIDATION_ERROR', 'Invoice ini bukan platform channel, tidak perlu credit ledger platform', 422)
+    }
+
+    const existingCreditLedger = invoice.balanceLedger || []
+    const hasCreditLedger = existingCreditLedger.length > 0
+    const balance = await db.clientBalance.findUnique({ where: { clientId: invoice.clientId } })
+    const plan = buildInvoiceLedgerPlan(invoice)
+
+    const beforeSnapshot = {
+      invoice: {
+        id: invoice.id,
+        invoice_number: invoice.invoiceNumber,
+        status: invoice.status,
+        amount: Number(invoice.amount || 0),
+        paid_at: invoice.paidAt ? invoice.paidAt.toISOString() : null,
+        payment_channel_owner: invoice.paymentChannel?.channelOwner || null,
+        payment_channel_type: invoice.paymentChannel?.channelType || null,
+      },
+      existing_credit_ledger: existingCreditLedger.map(l => ({
+        id: l.id,
+        type: l.type,
+        amount: Number(l.amount || 0),
+        created_at: l.createdAt ? l.createdAt.toISOString() : null
+      })),
+      balances: {
+        balance_pending: Number(balance?.balancePending || 0),
+        balance_available: Number(balance?.balanceAvailable || 0),
+        total_earned: Number(balance?.totalEarned || 0)
+      }
+    }
+
+    const afterSnapshot = {
+      ledger_to_create: {
+        type: plan.ledger_type,
+        amount: Number(plan.ledger_amount || 0),
+        available_at: plan.ledger_available_at,
+        settled_at: plan.ledger_settled_at,
+        note: plan.ledger_note
+      },
+      mdr_fee_to_create: plan.mdr_fee ? {
+        amount: Number(plan.mdr_fee.amount || 0),
+        note: plan.mdr_fee.note
+      } : null,
+      balances_after: {
+        balance_pending: Number(balance?.balancePending || 0) + Number(plan.balance_delta.balancePending || 0),
+        balance_available: Number(balance?.balanceAvailable || 0) + Number(plan.balance_delta.balanceAvailable || 0),
+        total_earned: Number(balance?.totalEarned || 0) + Number(plan.balance_delta.totalEarned || 0)
+      }
+    }
+
+    return {
+      issue_id: `inv-ledger-missing:${invoice.id}`,
+      issue_type: RECON_FIXABLE_ISSUE,
+      entity_type: 'invoice',
+      entity_id: invoice.id,
+      reference: invoice.invoiceNumber,
+      fixable: !hasCreditLedger,
+      fix_block_reason: hasCreditLedger ? 'Ledger credit sudah ada (sudah fixed / bukan mismatch lagi).' : null,
+      client_id: invoice.clientId,
+      client_name: invoice.client?.name || '-',
+      impact_amount: Number(invoice.amount || 0),
+      plan,
+      before_snapshot: beforeSnapshot,
+      after_snapshot: afterSnapshot
+    }
+  }
+
   // All admin routes require: auth + active status + isAdmin
   fastify.addHook('preHandler', authenticate)
   fastify.addHook('preHandler', checkClientStatus)
@@ -370,8 +551,8 @@ export async function adminRoutes(fastify) {
         ? RECON_PRELAUNCH_CUTOFF.toISOString()
         : null,
       audit_trail: {
-        enabled: false,
-        message: 'Audit trail fix-action akan diaktifkan pada fase berikutnya.'
+        enabled: true,
+        message: 'Dry-run dan execute fix akan dicatat di admin_fix_audit_logs.'
       },
       data,
       pagination: {
@@ -381,6 +562,262 @@ export async function adminRoutes(fastify) {
         total_pages: Math.max(1, Math.ceil(total / per_page))
       }
     })
+  })
+
+  // ── POST /admin/reconciliation/dry-run ──────────────────
+  // Simulate fix impact without writing invoice/ledger balances.
+  fastify.post('/reconciliation/dry-run', {
+    schema: {
+      body: {
+        type: 'object',
+        properties: {
+          issue_id: { type: 'string' },
+          issue_type: { type: 'string' },
+          entity_id: { type: 'string' },
+          invoice_id: { type: 'string' },
+          invoice_number: { type: 'string' },
+        }
+      }
+    }
+  }, async (request, reply) => {
+    const adminId = request.client.id
+    const {
+      issue_id,
+      issue_type,
+      entity_id,
+      invoice_id,
+      invoice_number
+    } = request.body || {}
+
+    let preview = null
+    try {
+      preview = await buildInvoiceLedgerFixPreview({
+        issueId: issue_id,
+        issueType: issue_type,
+        invoiceId: invoice_id || entity_id,
+        invoiceNumber: invoice_number
+      })
+
+      const audit = await db.adminFixAuditLog.create({
+        data: {
+          adminId,
+          issueId: preview.issue_id,
+          issueType: preview.issue_type,
+          action: 'dry_run',
+          entityType: preview.entity_type,
+          entityId: preview.entity_id,
+          beforeSnapshot: preview.before_snapshot,
+          afterSnapshot: preview.after_snapshot,
+          status: 'success',
+        }
+      })
+
+      return reply.success({
+        dry_run: true,
+        audit_id: audit.id,
+        preview
+      })
+    } catch (err) {
+      const code = err.code || 'RECON_DRY_RUN_FAILED'
+      const statusCode = err.statusCode || 500
+      const message = err.message || 'Dry-run reconciliation gagal'
+
+      try {
+        await db.adminFixAuditLog.create({
+          data: {
+            adminId,
+            issueId: issue_id || (preview?.issue_id || 'unknown'),
+            issueType: issue_type || (preview?.issue_type || RECON_FIXABLE_ISSUE),
+            action: 'dry_run',
+            entityType: 'invoice',
+            entityId: invoice_id || entity_id || (preview?.entity_id || adminId),
+            beforeSnapshot: preview?.before_snapshot || null,
+            afterSnapshot: preview?.after_snapshot || null,
+            status: 'failed',
+            errorMessage: message
+          }
+        })
+      } catch {}
+
+      return reply.fail(code, message, statusCode)
+    }
+  })
+
+  // ── POST /admin/reconciliation/execute ──────────────────
+  // Execute fix safely (v1: only INVOICE_PAID_MISSING_LEDGER_CREDIT).
+  fastify.post('/reconciliation/execute', {
+    schema: {
+      body: {
+        type: 'object',
+        properties: {
+          issue_id: { type: 'string' },
+          issue_type: { type: 'string' },
+          entity_id: { type: 'string' },
+          invoice_id: { type: 'string' },
+          invoice_number: { type: 'string' },
+          confirm_text: { type: 'string' },
+          idempotency_key: { type: 'string' },
+        }
+      }
+    }
+  }, async (request, reply) => {
+    const adminId = request.client.id
+    const {
+      issue_id,
+      issue_type,
+      entity_id,
+      invoice_id,
+      invoice_number,
+      confirm_text,
+      idempotency_key
+    } = request.body || {}
+
+    if (confirm_text !== 'FIX') {
+      return reply.fail('VALIDATION_ERROR', 'confirm_text harus "FIX" untuk menjalankan aksi ini', 422)
+    }
+
+    let preview = null
+    try {
+      preview = await buildInvoiceLedgerFixPreview({
+        issueId: issue_id,
+        issueType: issue_type,
+        invoiceId: invoice_id || entity_id,
+        invoiceNumber: invoice_number
+      })
+
+      if (!preview.fixable) {
+        return reply.fail('ALREADY_FIXED', preview.fix_block_reason || 'Issue tidak perlu di-fix', 422)
+      }
+
+      const idemKey = (idempotency_key || '').trim() || `recon:invoice-ledger:${preview.entity_id}:create-missing-ledger`
+      const now = new Date()
+
+      const result = await db.$transaction(async (tx) => {
+        const invoice = await tx.invoice.findUnique({
+          where: { id: preview.entity_id },
+          include: {
+            client: {
+              select: {
+                id: true,
+                role: true,
+                subscriptions: {
+                  where: { status: 'active' },
+                  select: { id: true },
+                  take: 1
+                }
+              }
+            },
+            balanceLedger: {
+              where: { type: { in: ['credit_pending', 'credit_available'] } },
+              select: { id: true }
+            }
+          }
+        })
+
+        if (!invoice) throw reconError('INVOICE_NOT_FOUND', 'Invoice tidak ditemukan saat execute', 404)
+        if (invoice.balanceLedger.length > 0) throw reconError('ALREADY_FIXED', 'Ledger credit sudah ada, execute dibatalkan', 422)
+
+        const plan = buildInvoiceLedgerPlan(invoice, now)
+        const txOps = [
+          tx.balanceLedger.create({
+            data: {
+              clientId: invoice.clientId,
+              invoiceId: invoice.id,
+              type: plan.ledger_type,
+              amount: plan.ledger_amount,
+              availableAt: new Date(plan.ledger_available_at),
+              settledAt: plan.ledger_settled_at ? new Date(plan.ledger_settled_at) : null,
+              note: plan.ledger_note
+            }
+          }),
+          tx.clientBalance.upsert({
+            where: { clientId: invoice.clientId },
+            create: {
+              clientId: invoice.clientId,
+              balancePending: Number(plan.balance_delta.balancePending || 0),
+              balanceAvailable: Number(plan.balance_delta.balanceAvailable || 0),
+              totalEarned: Number(plan.balance_delta.totalEarned || 0),
+            },
+            update: {
+              balancePending: { increment: Number(plan.balance_delta.balancePending || 0) },
+              balanceAvailable: { increment: Number(plan.balance_delta.balanceAvailable || 0) },
+              totalEarned: { increment: Number(plan.balance_delta.totalEarned || 0) },
+            }
+          })
+        ]
+
+        if (plan.mdr_fee?.amount) {
+          txOps.push(
+            tx.balanceLedger.create({
+              data: {
+                clientId: invoice.clientId,
+                invoiceId: invoice.id,
+                type: 'mdr_fee',
+                amount: Number(plan.mdr_fee.amount || 0),
+                availableAt: now,
+                settledAt: now,
+                note: plan.mdr_fee.note
+              }
+            })
+          )
+        }
+
+        await Promise.all(txOps)
+
+        const audit = await tx.adminFixAuditLog.create({
+          data: {
+            adminId,
+            issueId: preview.issue_id,
+            issueType: preview.issue_type,
+            action: 'execute',
+            entityType: preview.entity_type,
+            entityId: preview.entity_id,
+            beforeSnapshot: preview.before_snapshot,
+            afterSnapshot: preview.after_snapshot,
+            status: 'success',
+            idempotencyKey: idemKey
+          }
+        })
+
+        return { auditId: audit.id, plan }
+      })
+
+      return reply.success({
+        executed: true,
+        issue_id: preview.issue_id,
+        audit_id: result.auditId,
+        idempotency_key: (idempotency_key || '').trim() || `recon:invoice-ledger:${preview.entity_id}:create-missing-ledger`,
+        plan: result.plan,
+        message: `Fix berhasil dieksekusi untuk invoice ${preview.reference}`
+      })
+    } catch (err) {
+      if (err.code === 'P2002') {
+        return reply.fail('DUPLICATE_EXECUTION', 'Fix ini sudah pernah dieksekusi (idempotency key sama).', 409)
+      }
+
+      const code = err.code || 'RECON_EXECUTE_FAILED'
+      const statusCode = err.statusCode || 500
+      const message = err.message || 'Execute reconciliation gagal'
+
+      try {
+        await db.adminFixAuditLog.create({
+          data: {
+            adminId,
+            issueId: issue_id || (preview?.issue_id || 'unknown'),
+            issueType: issue_type || (preview?.issue_type || RECON_FIXABLE_ISSUE),
+            action: 'execute',
+            entityType: 'invoice',
+            entityId: invoice_id || entity_id || (preview?.entity_id || adminId),
+            beforeSnapshot: preview?.before_snapshot || null,
+            afterSnapshot: preview?.after_snapshot || null,
+            status: 'failed',
+            errorMessage: message
+          }
+        })
+      } catch {}
+
+      return reply.fail(code, message, statusCode)
+    }
   })
 
   // ── GET /admin/queue-health ─────────────────────────────
