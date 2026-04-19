@@ -39,6 +39,7 @@ async function redis(fastify) {
   // Decorate with a proxy that falls back gracefully
   const safeRedis = {
     get status() { return client.status },
+    ping: (...args) => client.ping(...args),
     get: (...args) => client.get(...args).catch(() => null),
     set: (...args) => client.set(...args).catch(() => 'OK'),
     setex: (...args) => client.setex(...args).catch(() => 'OK'),

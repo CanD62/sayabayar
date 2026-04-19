@@ -132,6 +132,54 @@ export async function adminRoutes(fastify) {
     })
   })
 
+  // ── POST /admin/queue-health/:queue/clear-failed ───────
+  // Clear failed jobs for a specific queue (ops tool)
+  fastify.post('/queue-health/:queue/clear-failed', {
+    schema: {
+      params: {
+        type: 'object',
+        required: ['queue'],
+        properties: {
+          queue: { type: 'string', enum: ['scrape', 'match', 'webhook', 'flip'] }
+        }
+      },
+      body: {
+        type: 'object',
+        properties: {
+          limit: { type: 'integer', minimum: 1, maximum: 500, default: 200 }
+        }
+      }
+    }
+  }, async (request, reply) => {
+    const { queue: queueName } = request.params
+    const limit = request.body?.limit || 200
+
+    const queueMap = {
+      scrape: scrapeQueue,
+      match: matchQueue,
+      webhook: webhookQueue,
+      flip: flipQueue,
+    }
+
+    const targetQueue = queueMap[queueName]
+    if (!targetQueue) {
+      return reply.fail('VALIDATION_ERROR', 'Queue tidak valid', 422)
+    }
+
+    try {
+      // Clean failed jobs older than now (grace=0), up to limit.
+      const removed = await targetQueue.clean(0, limit, 'failed')
+      return reply.success({
+        queue: queueName,
+        removed_count: Array.isArray(removed) ? removed.length : 0,
+        limit,
+        message: `Failed jobs pada queue "${queueName}" dibersihkan.`
+      })
+    } catch (err) {
+      return reply.fail('INTERNAL_ERROR', err.message || 'Gagal membersihkan failed jobs', 500)
+    }
+  })
+
   // ── GET /admin/stats ─────────────────────────────────────
   // Platform-wide overview stats
   fastify.get('/stats', async (request, reply) => {

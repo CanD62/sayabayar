@@ -18,6 +18,7 @@ export default function AdminQueueHealthPage() {
   const [health, setHealth] = useState(null)
   const [error, setError] = useState('')
   const [autoRefresh, setAutoRefresh] = useState(true)
+  const [clearingQueue, setClearingQueue] = useState('')
 
   const load = async () => {
     setError('')
@@ -42,6 +43,20 @@ export default function AdminQueueHealthPage() {
 
   const rows = health?.queues || []
   const summary = health?.summary || { waiting: 0, active: 0, delayed: 0, failed: 0, completed: 0 }
+
+  const clearFailed = async (queue) => {
+    if (!queue) return
+    setClearingQueue(queue)
+    setError('')
+    try {
+      await api.post(`/v1/admin/queue-health/${queue}/clear-failed`, { limit: 200 })
+      await load()
+    } catch (err) {
+      setError(err.message || 'Gagal clear failed jobs')
+    } finally {
+      setClearingQueue('')
+    }
+  }
 
   return (
     <>
@@ -99,6 +114,8 @@ export default function AdminQueueHealthPage() {
           { key: 'delayed', label: 'Delayed' },
           { key: 'failed', label: 'Failed' },
           { key: 'completed', label: 'Completed' },
+          { key: 'failedReason', label: 'Failed Reason' },
+          { key: 'action', label: 'Aksi' },
         ]}
         data={rows}
         loading={loading}
@@ -125,6 +142,32 @@ export default function AdminQueueHealthPage() {
               delayed: <span style={{ fontWeight: 600, color: (c.delayed || 0) > 0 ? '#a855f7' : 'var(--text-muted)' }}>{fmt(c.delayed)}</span>,
               failed: <span style={{ fontWeight: 700, color: (c.failed || 0) > 0 ? '#ef4444' : 'var(--text-muted)' }}>{fmt(c.failed)}</span>,
               completed: <span style={{ fontWeight: 600, color: (c.completed || 0) > 0 ? '#10b981' : 'var(--text-muted)' }}>{fmt(c.completed)}</span>,
+              failedReason: q.failed_samples?.length > 0 ? (
+                <div style={{ display: 'grid', gap: 6 }}>
+                  {q.failed_samples.map((f) => (
+                    <div key={`${q.queue}-${f.id}`} style={{ fontSize: '0.75rem', lineHeight: 1.35 }}>
+                      <div style={{ color: 'var(--text-muted)' }}>
+                        <span className="font-mono">#{f.id}</span> • {f.name} • attempt {f.attempts_made}
+                      </div>
+                      <div style={{ color: '#ef4444' }}>{f.failed_reason || 'No reason'}</div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>—</span>
+              ),
+              action: (c.failed || 0) > 0 ? (
+                <button
+                  className="btn btn-sm btn-ghost"
+                  onClick={() => clearFailed(q.queue)}
+                  disabled={clearingQueue === q.queue}
+                  style={{ whiteSpace: 'nowrap' }}
+                >
+                  {clearingQueue === q.queue ? 'Clearing...' : 'Clear Failed'}
+                </button>
+              ) : (
+                <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>—</span>
+              ),
             },
             actions: q.failed_samples?.length > 0 ? (
               <div style={{ width: '100%', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 10, background: 'rgba(239,68,68,0.05)', padding: 10 }}>
@@ -138,6 +181,14 @@ export default function AdminQueueHealthPage() {
                     </div>
                   </div>
                 ))}
+                <button
+                  className="btn btn-sm btn-ghost"
+                  onClick={() => clearFailed(q.queue)}
+                  disabled={clearingQueue === q.queue}
+                  style={{ marginTop: 8, width: '100%', justifyContent: 'center' }}
+                >
+                  {clearingQueue === q.queue ? 'Clearing...' : 'Clear Failed Jobs'}
+                </button>
               </div>
             ) : (
               <div style={{ width: '100%', fontSize: '0.76rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -156,4 +207,3 @@ export default function AdminQueueHealthPage() {
     </>
   )
 }
-
