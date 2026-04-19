@@ -47,15 +47,24 @@ export async function adminRoutes(fastify) {
 
   const RECON_MAX_FETCH = 300
   const RECON_STALE_MINUTES = 30
+  const RECON_PRELAUNCH_CUTOFF = new Date(process.env.RECON_PRELAUNCH_CUTOFF || '2026-04-03T00:00:00+07:00')
 
   function toIso(dt) {
     return dt ? new Date(dt).toISOString() : new Date().toISOString()
   }
 
-  async function collectInvoiceLedgerIssues() {
+  async function collectInvoiceLedgerIssues({ excludePrelaunch = true } = {}) {
+    const paidAtFilter = (excludePrelaunch && !Number.isNaN(RECON_PRELAUNCH_CUTOFF.getTime()))
+      ? { gte: RECON_PRELAUNCH_CUTOFF }
+      : undefined
+
     const invoices = await db.invoice.findMany({
       where: {
         status: 'paid',
+        ...(paidAtFilter ? { paidAt: paidAtFilter } : {}),
+        NOT: {
+          invoiceNumber: { startsWith: 'SUB-' }
+        },
         paymentChannel: { is: { channelOwner: 'platform' } },
         balanceLedger: {
           none: {
@@ -310,14 +319,15 @@ export async function adminRoutes(fastify) {
           page: { type: 'integer', minimum: 1, default: 1 },
           per_page: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
           severity: { type: 'string', enum: ['low', 'medium', 'high'] },
+          exclude_prelaunch: { type: 'boolean', default: true },
         }
       }
     }
   }, async (request, reply) => {
-    const { domain = 'all', page = 1, per_page = 20, severity } = request.query
+    const { domain = 'all', page = 1, per_page = 20, severity, exclude_prelaunch = true } = request.query
 
     const [invoiceIssues, withdrawalIssues, disbursementIssues] = await Promise.all([
-      collectInvoiceLedgerIssues(),
+      collectInvoiceLedgerIssues({ excludePrelaunch: exclude_prelaunch }),
       collectWithdrawalProviderIssues(),
       collectDisbursementProviderIssues(),
     ])
@@ -354,8 +364,11 @@ export async function adminRoutes(fastify) {
 
     return reply.success({
       summary,
-      filters: { domain, severity: severity || null },
+      filters: { domain, severity: severity || null, exclude_prelaunch },
       dry_run: true,
+      prelaunch_cutoff: !Number.isNaN(RECON_PRELAUNCH_CUTOFF.getTime())
+        ? RECON_PRELAUNCH_CUTOFF.toISOString()
+        : null,
       audit_trail: {
         enabled: false,
         message: 'Audit trail fix-action akan diaktifkan pada fase berikutnya.'
