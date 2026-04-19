@@ -5,6 +5,7 @@ import { RefreshCw, ShieldAlert, Clock3 } from 'lucide-react'
 import AdminTable from '@/components/AdminTable'
 
 const fmt = (n) => new Intl.NumberFormat('id-ID').format(Math.round(Number(n || 0)))
+const FIXABLE_ISSUE = 'INVOICE_PAID_MISSING_LEDGER_CREDIT'
 
 const DOMAIN_TABS = [
   { key: 'all', label: 'Semua Domain' },
@@ -19,13 +20,6 @@ const SEVERITY_BADGE = {
   high: { label: 'High', cls: 'badge-danger' },
 }
 
-const ACTION_LABEL = {
-  resync_provider: 'Re-sync Provider',
-  create_missing_ledger: 'Create Missing Ledger',
-  refund_now: 'Refund Now',
-  requeue_job: 'Requeue Job',
-}
-
 export default function AdminReconciliationPage() {
   const [domain, setDomain] = useState('all')
   const [severity, setSeverity] = useState('')
@@ -33,6 +27,9 @@ export default function AdminReconciliationPage() {
   const [loading, setLoading] = useState(true)
   const [payload, setPayload] = useState(null)
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+  const [preview, setPreview] = useState(null)
+  const [actionState, setActionState] = useState({ issueId: '', mode: '' })
   const perPage = 20
 
   const load = async (p = page, d = domain, s = severity) => {
@@ -61,6 +58,79 @@ export default function AdminReconciliationPage() {
   }
   const rows = payload?.data?.data || []
   const pg = payload?.data?.pagination || { page: 1, total_pages: 1, total: 0 }
+  const isActionLoading = (issueId, mode) => actionState.issueId === issueId && actionState.mode === mode
+
+  const runDry = async (row) => {
+    setNotice('')
+    setError('')
+    setActionState({ issueId: row.id, mode: 'dry' })
+    try {
+      const res = await api.post('/v1/admin/reconciliation/dry-run', {
+        issue_id: row.id,
+        issue_type: row.issue_type,
+        entity_id: row.entity_id,
+      })
+      setPreview(res?.data?.preview || null)
+      setNotice('Dry-run berhasil. Preview siap untuk dieksekusi.')
+    } catch (err) {
+      setError(err.message || 'Dry-run gagal')
+    } finally {
+      setActionState({ issueId: '', mode: '' })
+    }
+  }
+
+  const runExecute = async (row) => {
+    setNotice('')
+    setError('')
+    const typed = window.prompt(`Ketik FIX untuk menjalankan aksi pada ${row.reference || row.entity_id}`)
+    if (typed !== 'FIX') return
+
+    setActionState({ issueId: row.id, mode: 'execute' })
+    try {
+      const res = await api.post('/v1/admin/reconciliation/execute', {
+        issue_id: row.id,
+        issue_type: row.issue_type,
+        entity_id: row.entity_id,
+        confirm_text: 'FIX',
+      })
+      setNotice(res?.data?.message || 'Execute fix berhasil.')
+      setPreview(null)
+      await load(page, domain, severity)
+    } catch (err) {
+      setError(err.message || 'Execute fix gagal')
+    } finally {
+      setActionState({ issueId: '', mode: '' })
+    }
+  }
+
+  const renderActionButtons = (row) => {
+    const fixable = row.issue_type === FIXABLE_ISSUE
+    if (!fixable) {
+      return (
+        <button className="btn btn-sm btn-ghost" disabled title="Belum didukung untuk issue ini">
+          Soon
+        </button>
+      )
+    }
+    return (
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <button
+          className="btn btn-sm btn-ghost"
+          disabled={isActionLoading(row.id, 'dry')}
+          onClick={() => runDry(row)}
+        >
+          {isActionLoading(row.id, 'dry') ? 'Dry-run…' : 'Dry-run'}
+        </button>
+        <button
+          className="btn btn-sm btn-primary"
+          disabled={isActionLoading(row.id, 'execute')}
+          onClick={() => runExecute(row)}
+        >
+          {isActionLoading(row.id, 'execute') ? 'Executing…' : 'Execute'}
+        </button>
+      </div>
+    )
+  }
 
   return (
     <>
@@ -111,10 +181,42 @@ export default function AdminReconciliationPage() {
         </select>
       </div>
 
+      {notice && (
+        <div className="card" style={{ marginBottom: 14, borderColor: 'rgba(16,185,129,0.35)', background: 'rgba(16,185,129,0.08)' }}>
+          <div style={{ color: '#10b981', fontWeight: 600 }}>{notice}</div>
+        </div>
+      )}
+
       {error && (
         <div className="card" style={{ marginBottom: 14, borderColor: 'rgba(239,68,68,0.35)', background: 'rgba(239,68,68,0.08)' }}>
           <div style={{ color: '#ef4444', display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600 }}>
             <ShieldAlert size={16} /> {error}
+          </div>
+        </div>
+      )}
+
+      {preview && (
+        <div className="card" style={{ marginBottom: 14 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <div style={{ fontWeight: 700 }}>Preview Dry-run</div>
+            <button className="btn btn-ghost btn-sm" onClick={() => setPreview(null)}>Tutup</button>
+          </div>
+          <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: 10 }}>
+            {preview.reference} • {preview.issue_type}
+          </div>
+          <div style={{ display: 'grid', gap: 8 }}>
+            <div style={{ fontSize: '0.82rem' }}>
+              Ledger baru: <strong>{preview?.after_snapshot?.ledger_to_create?.type || '-'}</strong> • Rp {fmt(preview?.after_snapshot?.ledger_to_create?.amount || 0)}
+            </div>
+            <div style={{ fontSize: '0.82rem' }}>
+              Balance Pending: <strong>Rp {fmt(preview?.before_snapshot?.balances?.balance_pending || 0)}</strong> → <strong>Rp {fmt(preview?.after_snapshot?.balances_after?.balance_pending || 0)}</strong>
+            </div>
+            <div style={{ fontSize: '0.82rem' }}>
+              Balance Available: <strong>Rp {fmt(preview?.before_snapshot?.balances?.balance_available || 0)}</strong> → <strong>Rp {fmt(preview?.after_snapshot?.balances_after?.balance_available || 0)}</strong>
+            </div>
+            <div style={{ fontSize: '0.82rem' }}>
+              Total Earned: <strong>Rp {fmt(preview?.before_snapshot?.balances?.total_earned || 0)}</strong> → <strong>Rp {fmt(preview?.after_snapshot?.balances_after?.total_earned || 0)}</strong>
+            </div>
           </div>
         </div>
       )}
@@ -145,7 +247,6 @@ export default function AdminReconciliationPage() {
         cardAccent={(r) => r.severity === 'high' ? '#ef4444' : r.severity === 'medium' ? '#f59e0b' : '#3b82f6'}
         renderRow={(r) => {
           const sev = SEVERITY_BADGE[r.severity] || SEVERITY_BADGE.low
-          const actionLabel = ACTION_LABEL[r.recommended_action] || 'Fix'
           return {
             cells: {
               domain: <span style={{ fontSize: '0.78rem', fontWeight: 700 }}>{r.domain}</span>,
@@ -165,15 +266,13 @@ export default function AdminReconciliationPage() {
                 </span>
               ),
               action: (
-                <button className="btn btn-sm btn-ghost" disabled title="Dry-run only (belum aktif)">
-                  {actionLabel}
-                </button>
+                renderActionButtons(r)
               ),
             },
             actions: (
-              <button className="btn btn-sm btn-ghost" disabled style={{ width: '100%', justifyContent: 'center' }} title="Dry-run only (belum aktif)">
-                {actionLabel}
-              </button>
+              <div style={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
+                {renderActionButtons(r)}
+              </div>
             )
           }
         }}
@@ -187,4 +286,3 @@ export default function AdminReconciliationPage() {
     </>
   )
 }
-
