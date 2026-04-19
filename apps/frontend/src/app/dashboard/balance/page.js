@@ -7,7 +7,7 @@ import { SkeletonStatGrid, SkeletonTable } from '@/components/Skeleton'
 import { useInvoiceEvents } from '@/lib/InvoiceEventContext'
 import { fmt } from '@/lib/format'
 import { SUPPORTED_BANKS } from '@/lib/constants'
-// import { DISBURSEMENT } from '@/lib/disbursement'
+import { DISBURSEMENT } from '@/lib/disbursement'
 import BankSelect from '@/components/BankSelect'
 import KycGate, { useKycStatus } from '@/components/KycGate'
 
