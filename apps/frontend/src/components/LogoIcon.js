@@ -1,4 +1,5 @@
 'use client'
+import { useId } from 'react'
 /**
  * LogoIcon — Custom logo: receipt/struk + lightning bolt
  *
@@ -8,6 +9,7 @@
  * Usage: <LogoIcon size={22} />
  */
 export default function LogoIcon({ size = 22 }) {
+  const gradientId = useId().replace(/:/g, '')
   const h = size
   const w = Math.round(size * (20 / 28))
 
@@ -21,7 +23,7 @@ export default function LogoIcon({ size = 22 }) {
       aria-hidden="true"
     >
       <defs>
-        <linearGradient id="bayar-lg" x1="0" y1="0" x2="20" y2="28" gradientUnits="userSpaceOnUse">
+        <linearGradient id={gradientId} x1="0" y1="0" x2="20" y2="28" gradientUnits="userSpaceOnUse">
           <stop offset="0%" stopColor="#10b981" />
           <stop offset="100%" stopColor="#0ea5e9" />
         </linearGradient>
@@ -44,7 +46,7 @@ export default function LogoIcon({ size = 22 }) {
           'L 2.5,26 L 0,22',
           'L 0,5 Q 0,0 5,0 Z',            // sisi kiri lurus + atas kiri rounded
         ].join(' ')}
-        fill="url(#bayar-lg)"
+        fill={`url(#${gradientId})`}
       />
 
       {/*

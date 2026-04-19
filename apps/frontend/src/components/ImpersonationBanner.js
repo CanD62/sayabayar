@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { ShieldAlert, X, Clock } from 'lucide-react'
 import { api } from '@/lib/api'
 
@@ -11,6 +11,7 @@ import { api } from '@/lib/api'
 export default function ImpersonationBanner() {
   const [session, setSession] = useState(null)
   const [timeLeft, setTimeLeft] = useState('')
+  const bannerRef = useRef(null)
 
   useEffect(() => {
     try {
@@ -18,6 +19,33 @@ export default function ImpersonationBanner() {
       if (raw) setSession(JSON.parse(raw))
     } catch { }
   }, [])
+
+  // Sync CSS variable with actual banner height (supports wrapped text on mobile)
+  useEffect(() => {
+    const root = document.documentElement
+    const syncHeight = () => {
+      const h = bannerRef.current?.offsetHeight || 0
+      root.style.setProperty('--impersonation-banner-height', `${h}px`)
+    }
+
+    if (!session) {
+      root.style.removeProperty('--impersonation-banner-height')
+      return
+    }
+
+    syncHeight()
+    const ro = typeof ResizeObserver !== 'undefined'
+      ? new ResizeObserver(syncHeight)
+      : null
+    if (ro && bannerRef.current) ro.observe(bannerRef.current)
+    window.addEventListener('resize', syncHeight)
+
+    return () => {
+      if (ro) ro.disconnect()
+      window.removeEventListener('resize', syncHeight)
+      root.style.removeProperty('--impersonation-banner-height')
+    }
+  }, [session])
 
   // Countdown real-time
   useEffect(() => {
@@ -49,7 +77,7 @@ export default function ImpersonationBanner() {
   if (!session) return null
 
   return (
-    <div style={{
+    <div ref={bannerRef} style={{
       position: 'fixed', top: 0, left: 0, right: 0, zIndex: 9999,
       background: 'linear-gradient(90deg, #dc2626, #b91c1c)',
       color: '#fff', padding: '10px 20px',

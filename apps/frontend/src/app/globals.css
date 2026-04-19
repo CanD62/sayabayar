@@ -145,9 +145,10 @@ a:hover {
   display: flex;
   flex-direction: column;
   position: fixed;
-  top: 0;
+  top: var(--impersonation-banner-height, 0px);
   left: 0;
-  bottom: 0;
+  bottom: auto;
+  height: calc(100vh - var(--impersonation-banner-height, 0px));
   z-index: 100;
   transition: background-color 0.2s ease, border-color 0.2s ease;
 }
@@ -293,7 +294,7 @@ a:hover {
 .main-content {
   flex: 1;
   margin-left: 260px;
-  padding: 32px;
+  padding: calc(32px + var(--impersonation-banner-height, 0px)) 32px 32px;
   min-height: 100vh;
   animation: fadeIn 0.4s ease;
 }
@@ -2378,7 +2379,7 @@ tbody tr.row-cancelled:hover {
 .mobile-toggle {
   display: none;
   position: fixed;
-  top: 12px;
+  top: calc(12px + var(--impersonation-banner-height, 0px));
   left: 12px;
   z-index: 200;
   width: 40px;
@@ -2399,6 +2400,30 @@ tbody tr.row-cancelled:hover {
   inset: 0;
   background: rgba(0, 0, 0, 0.5);
   z-index: 99;
+}
+
+.mobile-brand-bar,
+.mobile-nav-bar {
+  display: none;
+}
+
+.mobile-nav-actions,
+.mobile-nav-btn,
+.mobile-avatar-btn {
+  display: none;
+}
+
+.mobile-notif-wrap,
+.mobile-notif-badge,
+.mobile-notif-panel,
+.mobile-notif-panel-head,
+.mobile-notif-clear,
+.mobile-notif-empty,
+.mobile-notif-item,
+.mobile-notif-title,
+.mobile-notif-sub,
+.mobile-notif-time {
+  display: none;
 }
 
 /* ── Mobile card (hidden on desktop, shown on mobile via @media) ── */
@@ -2588,10 +2613,219 @@ tbody tr.row-cancelled:hover {
 
 /* ── Responsive ─────────────────────────────────────── */
 @media (max-width: 768px) {
+  /* AdminLTE-like mobile chrome:
+     bar 1 = brand/logo, bar 2 = nav row (hamburger area) */
+  .mobile-brand-bar {
+    display: flex;
+    position: fixed;
+    top: var(--impersonation-banner-height, 0px);
+    left: 0;
+    right: 0;
+    height: 52px;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    z-index: 210;
+    border-bottom: 1px solid var(--border);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .mobile-brand-bar .logo-text {
+    font-size: 1.05rem;
+    font-weight: 800;
+    -webkit-text-fill-color: unset;
+    color: var(--text-primary);
+    background: none;
+  }
+
+  .mobile-nav-bar {
+    display: block;
+    position: fixed;
+    top: calc(var(--impersonation-banner-height, 0px) + 52px);
+    left: 0;
+    right: 0;
+    height: 52px;
+    background: var(--bg-card);
+    border-bottom: 1px solid var(--border);
+    z-index: 205;
+  }
+
+  .mobile-nav-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    height: 100%;
+    padding: 0 12px 0 56px;
+    position: relative;
+    z-index: 221;
+  }
+
+  .mobile-nav-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    position: relative;
+    overflow: visible;
+    height: 34px;
+    min-width: 34px;
+    padding: 0 10px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    font-size: 0.78rem;
+    font-weight: 700;
+    text-decoration: none;
+  }
+
+  .mobile-nav-btn-primary {
+    color: var(--text-primary);
+    border-color: var(--border-focus);
+    background: var(--accent-subtle);
+  }
+
+  .mobile-avatar-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.01em;
+    text-decoration: none;
+  }
+
+  .mobile-notif-wrap {
+    display: block;
+    position: relative;
+  }
+
+  .mobile-notif-badge {
+    display: inline-flex;
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    border-radius: 999px;
+    align-items: center;
+    justify-content: center;
+    background: var(--danger);
+    color: #fff;
+    font-size: 0.6rem;
+    font-weight: 800;
+    line-height: 1;
+    border: 1px solid var(--bg-card);
+    z-index: 2;
+  }
+
+  .mobile-notif-panel {
+    display: block;
+    position: absolute;
+    top: 42px;
+    right: 0;
+    width: min(340px, calc(100vw - 24px));
+    max-height: 62vh;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--bg-card);
+    box-shadow: var(--shadow-lg);
+    z-index: 260;
+  }
+
+  .mobile-notif-panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.8rem;
+    color: var(--text-primary);
+  }
+
+  .mobile-notif-clear {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border);
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    border-radius: 8px;
+    padding: 4px 8px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  .mobile-notif-empty {
+    display: block;
+    padding: 14px 12px;
+    color: var(--text-muted);
+    font-size: 0.78rem;
+  }
+
+  .mobile-notif-item {
+    display: block;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    text-decoration: none;
+    color: inherit;
+  }
+
+  .mobile-notif-item:last-child {
+    border-bottom: none;
+  }
+
+  .mobile-notif-item.unread {
+    background: var(--accent-subtle);
+  }
+
+  .mobile-notif-title {
+    display: block;
+    color: var(--text-primary);
+    font-size: 0.78rem;
+    font-weight: 700;
+    line-height: 1.35;
+  }
+
+  .mobile-notif-sub {
+    display: block;
+    color: var(--text-secondary);
+    font-size: 0.74rem;
+    margin-top: 2px;
+  }
+
+  .mobile-notif-time {
+    display: block;
+    color: var(--text-muted);
+    font-size: 0.68rem;
+    margin-top: 4px;
+  }
 
   /* Mobile toggle visible */
   .mobile-toggle {
     display: flex;
+    top: calc(var(--impersonation-banner-height, 0px) + 58px);
+    left: 12px;
+    z-index: 220;
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    width: 36px;
+    height: 36px;
+    font-size: 1.5rem;
   }
 
   /* Sidebar off-canvas */
@@ -2629,7 +2863,7 @@ tbody tr.row-cancelled:hover {
   /* Main content full width */
   .main-content {
     margin-left: 0;
-    padding: 60px 16px 24px;
+    padding: calc(112px + var(--impersonation-banner-height, 0px)) 16px 24px;
     overflow-x: hidden;
     max-width: 100vw;
     box-sizing: border-box;

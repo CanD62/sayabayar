@@ -3,10 +3,11 @@ import { useEffect, useState } from 'react'
 import { useAuth } from '@/lib/AuthContext'
 import { useRouter, usePathname } from 'next/navigation'
 import Link from 'next/link'
+import { api } from '@/lib/api'
 import {
   LayoutDashboard, Users, Wallet, Receipt,
   Settings, Building2, LogOut, ShieldCheck,
-  ArrowLeftRight, Activity, BookOpen, Send, Crown
+  ArrowLeftRight, Activity, BookOpen, Send, Crown, Bell
 } from 'lucide-react'
 import LogoIcon from '@/components/LogoIcon'
 
@@ -17,11 +18,11 @@ const ADMIN_NAV = [
   { href: '/admin/invoices',     label: 'Invoice',      icon: Receipt },
   { href: '/admin/transactions', label: 'Transaksi',    icon: ArrowLeftRight },
   { href: '/admin/withdrawals',  label: 'Withdrawal',   icon: Wallet },
-  { href: '/admin/kyc',          label: 'KYC Review',   icon: ShieldCheck },
   { href: '/admin/disbursements',label: 'Disbursement', icon: Send },
+  { href: '/admin/kyc',          label: 'KYC Review',   icon: ShieldCheck },
   { href: '/admin/channels',     label: 'Channel',      icon: Building2 },
-  { href: '/admin/scraping-logs',label: 'Scraping Log',  icon: Activity },
   { href: '/admin/ledger',       label: 'Ledger',       icon: BookOpen },
+  { href: '/admin/scraping-logs',label: 'Scraping Log',  icon: Activity },
   { href: '/admin/webhook-logs', label: 'Webhook Log',  icon: Send },
   { href: '/admin/settings',     label: 'Pengaturan',   icon: Settings },
 ]
@@ -31,6 +32,8 @@ export default function AdminLayout({ children }) {
   const router = useRouter()
   const pathname = usePathname()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [kycPendingCount, setKycPendingCount] = useState(0)
+  const [disbursementAlertCount, setDisbursementAlertCount] = useState(0)
 
   useEffect(() => {
     if (!loading) {
@@ -39,6 +42,38 @@ export default function AdminLayout({ children }) {
     }
   }, [user, loading, router])
 
+  useEffect(() => {
+    if (!user?.is_admin) return
+
+    let cancelled = false
+    const loadHeaderCounts = async () => {
+      try {
+        const [kycRes, disbRes] = await Promise.all([
+          api.get('/v1/admin/kyc?status=pending&page=1&per_page=1'),
+          api.get('/v1/admin/disbursements/stats'),
+        ])
+        if (!cancelled) setKycPendingCount(kycRes?.pagination?.total || 0)
+        if (!cancelled) {
+          const pending = Number(disbRes?.data?.disbursements?.pending || 0)
+          const failed  = Number(disbRes?.data?.disbursements?.failed || 0)
+          setDisbursementAlertCount(pending + failed)
+        }
+      } catch {
+        if (!cancelled) {
+          setKycPendingCount(0)
+          setDisbursementAlertCount(0)
+        }
+      }
+    }
+
+    loadHeaderCounts()
+    const id = setInterval(loadHeaderCounts, 60_000)
+    return () => {
+      cancelled = true
+      clearInterval(id)
+    }
+  }, [user?.is_admin])
+
   if (loading) return <div className="loading"><div className="spinner" /></div>
   if (!user?.is_admin) return null
 
@@ -46,6 +81,36 @@ export default function AdminLayout({ children }) {
 
   return (
     <div className="layout">
+      <div className="mobile-brand-bar">
+        <LogoIcon size={24} />
+        <span className="logo-text">Admin Panel</span>
+      </div>
+      <div className="mobile-nav-bar">
+        <div className="mobile-nav-actions">
+          <Link href="/admin/withdrawals" className="mobile-nav-btn mobile-nav-btn-primary" title="Withdrawal">
+            <Wallet size={14} />
+            <span>WD</span>
+          </Link>
+
+          <Link href="/admin/merchants" className="mobile-nav-btn" title="Merchant">
+            <Users size={16} />
+          </Link>
+
+          <Link href="/admin/kyc" className="mobile-nav-btn" title="KYC Perlu Review">
+            {kycPendingCount > 0 && (
+              <span className="mobile-notif-badge">{kycPendingCount > 99 ? '99+' : kycPendingCount}</span>
+            )}
+            <Bell size={16} />
+          </Link>
+
+          <Link href="/admin/disbursements" className="mobile-nav-btn" title="Disbursement Alert">
+            {disbursementAlertCount > 0 && (
+              <span className="mobile-notif-badge">{disbursementAlertCount > 99 ? '99+' : disbursementAlertCount}</span>
+            )}
+            <Send size={16} />
+          </Link>
+        </div>
+      </div>
       <button className="mobile-toggle" onClick={() => setSidebarOpen(!sidebarOpen)}>
         {sidebarOpen ? '✕' : '☰'}
       </button>
