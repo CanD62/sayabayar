@@ -45,10 +45,330 @@ export async function adminRoutes(fastify) {
     return getAlaflipBalanceFull(userId, token)
   }
 
+  const RECON_MAX_FETCH = 300
+  const RECON_STALE_MINUTES = 30
+
+  function toIso(dt) {
+    return dt ? new Date(dt).toISOString() : new Date().toISOString()
+  }
+
+  async function collectInvoiceLedgerIssues() {
+    const invoices = await db.invoice.findMany({
+      where: {
+        status: 'paid',
+        paymentChannel: { is: { channelOwner: 'platform' } },
+        balanceLedger: {
+          none: {
+            type: { in: ['credit_pending', 'credit_available'] }
+          }
+        }
+      },
+      include: {
+        client: { select: { id: true, name: true } },
+        paymentChannel: { select: { id: true, channelOwner: true, channelType: true } }
+      },
+      orderBy: { paidAt: 'desc' },
+      take: RECON_MAX_FETCH,
+    })
+
+    return invoices.map(inv => ({
+      id: `inv-ledger-missing:${inv.id}`,
+      domain: 'invoice_ledger',
+      issue_type: 'INVOICE_PAID_MISSING_LEDGER_CREDIT',
+      severity: 'high',
+      entity_type: 'invoice',
+      entity_id: inv.id,
+      reference: inv.invoiceNumber,
+      client_id: inv.clientId,
+      client_name: inv.client?.name || '-',
+      impact_amount: Number(inv.amount || 0),
+      detected_at: toIso(inv.paidAt || inv.createdAt),
+      reason: `Invoice ${inv.invoiceNumber} sudah paid, tetapi tidak ada ledger credit (pending/available).`,
+      recommended_action: 'create_missing_ledger',
+      dry_run_available: true,
+      metadata: {
+        payment_channel_id: inv.paymentChannelId,
+        payment_channel_type: inv.paymentChannel?.channelType || null,
+        channel_owner: inv.paymentChannel?.channelOwner || null,
+      }
+    }))
+  }
+
+  async function collectWithdrawalProviderIssues() {
+    const staleAt = new Date(Date.now() - RECON_STALE_MINUTES * 60_000)
+
+    const [processedWithoutFlip, staleProcessing, failedNoRefund] = await Promise.all([
+      db.withdrawal.findMany({
+        where: {
+          status: 'processed',
+          OR: [{ flipTrxId: null }, { flipTrxId: '' }]
+        },
+        include: {
+          client: { select: { id: true, name: true } }
+        },
+        orderBy: { processedAt: 'desc' },
+        take: RECON_MAX_FETCH,
+      }),
+      db.withdrawal.findMany({
+        where: {
+          status: 'processing',
+          processedAt: { lt: staleAt }
+        },
+        include: {
+          client: { select: { id: true, name: true } }
+        },
+        orderBy: { processedAt: 'asc' },
+        take: RECON_MAX_FETCH,
+      }),
+      db.withdrawal.findMany({
+        where: {
+          status: { in: ['failed', 'rejected'] },
+          balanceLedger: {
+            none: {
+              type: 'credit_available',
+              note: { contains: 'Refund withdrawal' }
+            }
+          }
+        },
+        include: {
+          client: { select: { id: true, name: true } }
+        },
+        orderBy: { requestedAt: 'desc' },
+        take: RECON_MAX_FETCH,
+      })
+    ])
+
+    const issuesA = processedWithoutFlip.map(w => ({
+      id: `wd-processed-noflip:${w.id}`,
+      domain: 'withdrawal_provider',
+      issue_type: 'WITHDRAWAL_PROCESSED_WITHOUT_PROVIDER_ID',
+      severity: 'high',
+      entity_type: 'withdrawal',
+      entity_id: w.id,
+      reference: w.id,
+      client_id: w.clientId,
+      client_name: w.client?.name || '-',
+      impact_amount: Number(w.amount || 0),
+      detected_at: toIso(w.processedAt || w.requestedAt),
+      reason: 'Withdrawal berstatus processed tetapi flip_trx_id kosong.',
+      recommended_action: 'resync_provider',
+      dry_run_available: true,
+      metadata: { status: w.status, flip_trx_id: w.flipTrxId || null }
+    }))
+
+    const issuesB = staleProcessing.map(w => ({
+      id: `wd-processing-stale:${w.id}`,
+      domain: 'withdrawal_provider',
+      issue_type: 'WITHDRAWAL_PROCESSING_STALE',
+      severity: 'medium',
+      entity_type: 'withdrawal',
+      entity_id: w.id,
+      reference: w.id,
+      client_id: w.clientId,
+      client_name: w.client?.name || '-',
+      impact_amount: Number(w.amount || 0),
+      detected_at: toIso(w.processedAt || w.requestedAt),
+      reason: `Withdrawal processing lebih dari ${RECON_STALE_MINUTES} menit.`,
+      recommended_action: 'resync_provider',
+      dry_run_available: true,
+      metadata: { status: w.status, flip_trx_id: w.flipTrxId || null }
+    }))
+
+    const issuesC = failedNoRefund.map(w => ({
+      id: `wd-failed-no-refund:${w.id}`,
+      domain: 'withdrawal_provider',
+      issue_type: 'WITHDRAWAL_FAILED_MISSING_REFUND_LEDGER',
+      severity: 'high',
+      entity_type: 'withdrawal',
+      entity_id: w.id,
+      reference: w.id,
+      client_id: w.clientId,
+      client_name: w.client?.name || '-',
+      impact_amount: Number(w.amount || 0),
+      detected_at: toIso(w.requestedAt),
+      reason: `Withdrawal status ${w.status} namun belum ditemukan ledger refund credit_available.`,
+      recommended_action: 'refund_now',
+      dry_run_available: true,
+      metadata: { status: w.status, flip_trx_id: w.flipTrxId || null }
+    }))
+
+    return [...issuesA, ...issuesB, ...issuesC]
+  }
+
+  async function collectDisbursementProviderIssues() {
+    const staleAt = new Date(Date.now() - RECON_STALE_MINUTES * 60_000)
+    const [successWithoutFlip, staleProcessing, failedNoReason] = await Promise.all([
+      db.disbursement.findMany({
+        where: {
+          status: 'success',
+          OR: [{ flipTrxId: null }, { flipTrxId: '' }]
+        },
+        include: {
+          client: { select: { id: true, name: true } }
+        },
+        orderBy: { processedAt: 'desc' },
+        take: RECON_MAX_FETCH,
+      }),
+      db.disbursement.findMany({
+        where: {
+          status: 'processing',
+          processedAt: { lt: staleAt }
+        },
+        include: {
+          client: { select: { id: true, name: true } }
+        },
+        orderBy: { processedAt: 'asc' },
+        take: RECON_MAX_FETCH,
+      }),
+      db.disbursement.findMany({
+        where: {
+          status: 'failed',
+          OR: [{ failureReason: null }, { failureReason: '' }]
+        },
+        include: {
+          client: { select: { id: true, name: true } }
+        },
+        orderBy: { createdAt: 'desc' },
+        take: RECON_MAX_FETCH,
+      })
+    ])
+
+    const issuesA = successWithoutFlip.map(d => ({
+      id: `disb-success-noflip:${d.id}`,
+      domain: 'disbursement_provider',
+      issue_type: 'DISBURSEMENT_SUCCESS_WITHOUT_PROVIDER_ID',
+      severity: 'medium',
+      entity_type: 'disbursement',
+      entity_id: d.id,
+      reference: d.id,
+      client_id: d.clientId,
+      client_name: d.client?.name || '-',
+      impact_amount: Number(d.totalDeducted || 0),
+      detected_at: toIso(d.processedAt || d.createdAt),
+      reason: 'Disbursement berstatus success tetapi flip_trx_id kosong.',
+      recommended_action: 'resync_provider',
+      dry_run_available: true,
+      metadata: { status: d.status, flip_trx_id: d.flipTrxId || null }
+    }))
+
+    const issuesB = staleProcessing.map(d => ({
+      id: `disb-processing-stale:${d.id}`,
+      domain: 'disbursement_provider',
+      issue_type: 'DISBURSEMENT_PROCESSING_STALE',
+      severity: 'medium',
+      entity_type: 'disbursement',
+      entity_id: d.id,
+      reference: d.id,
+      client_id: d.clientId,
+      client_name: d.client?.name || '-',
+      impact_amount: Number(d.totalDeducted || 0),
+      detected_at: toIso(d.processedAt || d.createdAt),
+      reason: `Disbursement processing lebih dari ${RECON_STALE_MINUTES} menit.`,
+      recommended_action: 'resync_provider',
+      dry_run_available: true,
+      metadata: { status: d.status, flip_trx_id: d.flipTrxId || null }
+    }))
+
+    const issuesC = failedNoReason.map(d => ({
+      id: `disb-failed-noreason:${d.id}`,
+      domain: 'disbursement_provider',
+      issue_type: 'DISBURSEMENT_FAILED_WITHOUT_REASON',
+      severity: 'low',
+      entity_type: 'disbursement',
+      entity_id: d.id,
+      reference: d.id,
+      client_id: d.clientId,
+      client_name: d.client?.name || '-',
+      impact_amount: Number(d.totalDeducted || 0),
+      detected_at: toIso(d.processedAt || d.createdAt),
+      reason: 'Disbursement gagal tanpa failure reason.',
+      recommended_action: 'resync_provider',
+      dry_run_available: true,
+      metadata: { status: d.status, flip_trx_id: d.flipTrxId || null }
+    }))
+
+    return [...issuesA, ...issuesB, ...issuesC]
+  }
+
   // All admin routes require: auth + active status + isAdmin
   fastify.addHook('preHandler', authenticate)
   fastify.addHook('preHandler', checkClientStatus)
   fastify.addHook('preHandler', isAdmin)
+
+  // ── GET /admin/reconciliation ───────────────────────────
+  // Read-only mismatch detector across invoice/ledger/provider domains.
+  fastify.get('/reconciliation', {
+    schema: {
+      querystring: {
+        type: 'object',
+        properties: {
+          domain: {
+            type: 'string',
+            enum: ['all', 'invoice_ledger', 'withdrawal_provider', 'disbursement_provider'],
+            default: 'all'
+          },
+          page: { type: 'integer', minimum: 1, default: 1 },
+          per_page: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
+          severity: { type: 'string', enum: ['low', 'medium', 'high'] },
+        }
+      }
+    }
+  }, async (request, reply) => {
+    const { domain = 'all', page = 1, per_page = 20, severity } = request.query
+
+    const [invoiceIssues, withdrawalIssues, disbursementIssues] = await Promise.all([
+      collectInvoiceLedgerIssues(),
+      collectWithdrawalProviderIssues(),
+      collectDisbursementProviderIssues(),
+    ])
+
+    const allIssues = [...invoiceIssues, ...withdrawalIssues, ...disbursementIssues]
+      .sort((a, b) => new Date(b.detected_at) - new Date(a.detected_at))
+
+    const summary = {
+      invoice_ledger: {
+        count: invoiceIssues.length,
+        impact_amount: invoiceIssues.reduce((s, i) => s + Number(i.impact_amount || 0), 0),
+      },
+      withdrawal_provider: {
+        count: withdrawalIssues.length,
+        impact_amount: withdrawalIssues.reduce((s, i) => s + Number(i.impact_amount || 0), 0),
+      },
+      disbursement_provider: {
+        count: disbursementIssues.length,
+        impact_amount: disbursementIssues.reduce((s, i) => s + Number(i.impact_amount || 0), 0),
+      },
+      total: {
+        count: allIssues.length,
+        impact_amount: allIssues.reduce((s, i) => s + Number(i.impact_amount || 0), 0),
+      }
+    }
+
+    let filtered = allIssues
+    if (domain !== 'all') filtered = filtered.filter(i => i.domain === domain)
+    if (severity) filtered = filtered.filter(i => i.severity === severity)
+
+    const total = filtered.length
+    const start = (page - 1) * per_page
+    const data = filtered.slice(start, start + per_page)
+
+    return reply.success({
+      summary,
+      filters: { domain, severity: severity || null },
+      dry_run: true,
+      audit_trail: {
+        enabled: false,
+        message: 'Audit trail fix-action akan diaktifkan pada fase berikutnya.'
+      },
+      data,
+      pagination: {
+        page,
+        per_page,
+        total,
+        total_pages: Math.max(1, Math.ceil(total / per_page))
+      }
+    })
+  })
 
   // ── GET /admin/queue-health ─────────────────────────────
   // Queue + worker health snapshot (BullMQ + Redis)

@@ -7,7 +7,7 @@ import { api } from '@/lib/api'
 import {
   LayoutDashboard, Users, Wallet, Receipt,
   Settings, Building2, LogOut, ShieldCheck,
-  ArrowLeftRight, Activity, BookOpen, Send, Crown, Bell
+  ArrowLeftRight, Activity, BookOpen, Send, Crown, Bell, ShieldAlert
 } from 'lucide-react'
 import LogoIcon from '@/components/LogoIcon'
 
@@ -19,6 +19,7 @@ const ADMIN_NAV = [
   { href: '/admin/transactions', label: 'Transaksi',    icon: ArrowLeftRight },
   { href: '/admin/withdrawals',  label: 'Withdrawal',   icon: Wallet },
   { href: '/admin/disbursements',label: 'Disbursement', icon: Send },
+  { href: '/admin/reconciliation',label: 'Reconciliation', icon: ShieldAlert },
   { href: '/admin/kyc',          label: 'KYC Review',   icon: ShieldCheck },
   { href: '/admin/channels',     label: 'Channel',      icon: Building2 },
   { href: '/admin/ledger',       label: 'Ledger',       icon: BookOpen },
