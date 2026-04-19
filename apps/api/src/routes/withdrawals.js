@@ -2,7 +2,7 @@
 import bcrypt from 'bcrypt'
 import { authenticate, checkClientStatus } from '../middleware/authenticate.js'
 import { blockIfImpersonation } from '../utils/impersonation.js'
-import { WITHDRAW } from '@payment-gateway/shared/constants'
+import { WITHDRAW, DISBURSEMENT } from '@payment-gateway/shared/constants'
 import { Queue } from 'bullmq'
 
 // Flip queue — BullMQ terkoneksi ke Redis yang sama dengan scraper.
@@ -27,6 +27,51 @@ export async function withdrawalRoutes(fastify) {
 
   fastify.addHook('preHandler', authenticate)
   fastify.addHook('preHandler', checkClientStatus)
+
+  // KYC gate untuk withdrawal saldo platform:
+  // jika total_earned sudah melewati ambang, KYC harus approved.
+  async function ensureWithdrawalKyc(clientId, reply) {
+    const clientBalance = await db.clientBalance.findUnique({
+      where: { clientId },
+      select: { totalEarned: true }
+    })
+
+    const totalEarned = Number(clientBalance?.totalEarned || 0)
+    if (totalEarned < DISBURSEMENT.KYC_THRESHOLD) return true
+
+    const kyc = await db.kycDocument.findUnique({
+      where: { clientId }
+    })
+
+    if (!kyc) {
+      reply.fail(
+        'DISBURSEMENT_KYC_REQUIRED',
+        `Total earned Anda sudah mencapai Rp ${DISBURSEMENT.KYC_THRESHOLD.toLocaleString('id-ID')}. Selesaikan verifikasi KYC untuk melanjutkan penarikan.`,
+        403
+      )
+      return false
+    }
+
+    if (kyc.status === 'pending') {
+      reply.fail(
+        'DISBURSEMENT_KYC_PENDING',
+        'Verifikasi KYC Anda sedang diproses. Penarikan akan tersedia setelah disetujui.',
+        403
+      )
+      return false
+    }
+
+    if (kyc.status === 'rejected') {
+      reply.fail(
+        'DISBURSEMENT_KYC_REQUIRED',
+        `KYC ditolak: ${kyc.rejectionReason || 'Silakan submit ulang dokumen KYC.'}`,
+        403
+      )
+      return false
+    }
+
+    return true
+  }
 
   // ── GET /withdrawals ────────────────────────────────────
   fastify.get('/', {
@@ -95,6 +140,9 @@ export async function withdrawalRoutes(fastify) {
     const clientId = request.client.id
     const today    = new Date()
     today.setHours(0, 0, 0, 0)
+
+    // KYC gate untuk penarikan saldo platform berdasarkan total_earned
+    if (!await ensureWithdrawalKyc(clientId, reply)) return
 
     // Cek: sudah ada withdrawal hari ini (status apapun kecuali rejected)
     const todayWithdrawal = await db.withdrawal.findFirst({
@@ -166,6 +214,9 @@ export async function withdrawalRoutes(fastify) {
     if (request.isImpersonation) return blockIfImpersonation(request, reply)
     const { amount, destination_bank, destination_account, destination_name, nonce, password } = request.body
     const clientId = request.client.id
+
+    // Double-check di step submit agar tidak bisa bypass lewat direct API call.
+    if (!await ensureWithdrawalKyc(clientId, reply)) return
 
     // 1. Verifikasi nonce dari Redis — belum dihapus dulu, hapus hanya setelah password valid
     const nonceKey    = `pg:withdraw:nonce:${clientId}`

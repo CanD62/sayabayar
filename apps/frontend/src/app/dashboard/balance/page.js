@@ -7,6 +7,7 @@ import { SkeletonStatGrid, SkeletonTable } from '@/components/Skeleton'
 import { useInvoiceEvents } from '@/lib/InvoiceEventContext'
 import { fmt } from '@/lib/format'
 import { SUPPORTED_BANKS } from '@/lib/constants'
+// import { DISBURSEMENT } from '@/lib/disbursement'
 import BankSelect from '@/components/BankSelect'
 import KycGate, { useKycStatus } from '@/components/KycGate'
 
@@ -163,8 +164,13 @@ export default function BalancePage() {
   }
   useEffect(load, [])
 
-  // KYC check — hanya dijalankan jika total_earned >= 250k
+  // KYC check — hanya dijalankan jika total_earned >= ambang KYC
   const totalEarned = balance?.total_earned ?? 0
+  const kycThreshold = DISBURSEMENT.KYC_THRESHOLD
+  const remainingToKyc = Math.max(0, kycThreshold - totalEarned)
+  const earnedProgress = kycThreshold > 0
+    ? Math.min(100, Math.round((totalEarned / kycThreshold) * 100))
+    : 0
   const { kycRequired, kycStatus, loading: kycLoading } = useKycStatus(totalEarned)
 
   // Auto-refresh when balance.settled SSE event fires from layout
@@ -333,7 +339,49 @@ export default function BalancePage() {
         </button>
       </div>
 
-      {/* KYC Banner — muncul hanya jika total_earned >= 250k dan belum approved */}
+      {/* Info kebijakan KYC untuk penarikan saldo dari channel platform */}
+      {/* <div className="card" style={{ marginBottom: 16, padding: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 8 }}>
+          <div style={{ fontWeight: 700, fontSize: '0.92rem' }}>Info KYC Penarikan</div>
+          <span
+            className={`badge ${kycRequired ? 'badge-warning' : 'badge-success'}`}
+            style={{ whiteSpace: 'nowrap' }}
+          >
+            {kycRequired ? 'KYC Diperlukan' : 'Belum Wajib KYC'}
+          </span>
+        </div>
+
+        <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
+          Penarikan saldo yang berasal dari channel platform membutuhkan KYC setelah total earned mencapai Rp {fmt(kycThreshold)}. Aturan ini berlaku juga untuk akun Pro saat menggunakan channel platform sebagai backup.
+        </div>
+
+        <div style={{ marginTop: 10, display: 'grid', gap: 6 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+            <span>Total earned</span>
+            <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>
+              Rp {fmt(totalEarned)} / Rp {fmt(kycThreshold)}
+            </span>
+          </div>
+          <div style={{ height: 8, borderRadius: 999, background: 'var(--bg-secondary)', overflow: 'hidden' }}>
+            <div
+              style={{
+                height: '100%',
+                width: `${earnedProgress}%`,
+                background: kycRequired ? 'var(--warning)' : 'var(--success)',
+                transition: 'width 0.3s ease',
+              }}
+            />
+          </div>
+        </div>
+
+        <div style={{ marginTop: 8, fontSize: '0.78rem', color: kycRequired ? 'var(--warning)' : 'var(--text-muted)', fontWeight: kycRequired ? 700 : 500 }}>
+          {kycRequired
+            ? `Ambang KYC sudah tercapai. Status KYC saat ini: ${kycStatus || 'belum submit'}.`
+            : `Sisa Rp ${fmt(remainingToKyc)} menuju ambang KYC.`}
+        </div>
+      </div> */}
+
+      {/* KYC Banner — muncul jika total_earned >= ambang dan belum approved */}
       {kycRequired && (
         <div style={{ marginBottom: 20 }}>
           <KycGate purpose="withdrawal"

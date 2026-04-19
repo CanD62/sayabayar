@@ -260,6 +260,8 @@ export const FLIP = {
 export const DISBURSEMENT = {
   MIN_AMOUNT: 10_000,
   MIN_DEPOSIT: 50_000,
+  // Withdrawal dari saldo platform wajib KYC jika total_earned mencapai ambang ini.
+  KYC_THRESHOLD: 490_000,
   // Fee berjenjang: < 100k → Rp 2.500, >= 250k → Rp 3.000
   FEE_LOW: 2_500,   // transfer < Rp 250.000
   FEE_HIGH: 3_000,   // transfer >= Rp 250.000
