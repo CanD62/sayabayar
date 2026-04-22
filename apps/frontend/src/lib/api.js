@@ -170,7 +170,7 @@ class ApiClient {
   del(path) { return this.request(path, { method: 'DELETE' }) }
 
   /** Upload multipart FormData (for file uploads like KYC) */
-  async upload(path, formData) {
+  async upload(path, formData, _retried = false) {
     const token = this.getToken()
     const headers = {}
     if (token) headers['Authorization'] = `Bearer ${token}`
@@ -196,6 +196,21 @@ class ApiClient {
       err.code = 'INVALID_RESPONSE'
       err.status = res.status
       throw err
+    }
+
+    // Auto refresh on 401 (same behavior as request())
+    if (res.status === 401 && !_retried) {
+      const intentional401 = data?.error?.code &&
+        ['INVALID_CREDENTIALS', 'WITHDRAWAL_PASSWORD_LOCKED'].includes(data.error.code)
+
+      if (!intentional401) {
+        const refreshed = await this.refresh()
+        if (refreshed) {
+          return this.upload(path, formData, true)
+        }
+        this.clearToken()
+        this._onSessionExpired?.()
+      }
     }
 
     if (!data.success && res.status >= 400) {
