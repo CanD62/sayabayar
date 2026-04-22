@@ -4,6 +4,7 @@
 
 import { authenticate, checkClientStatus } from '../middleware/authenticate.js'
 import { blockIfImpersonation } from '../utils/impersonation.js'
+import { DISBURSEMENT } from '@payment-gateway/shared/constants'
 
 // Max file size: 5MB per file
 const MAX_FILE_SIZE = 5 * 1024 * 1024
@@ -17,17 +18,41 @@ export async function kycRoutes(fastify) {
   fastify.addHook('preHandler', authenticate)
   fastify.addHook('preHandler', checkClientStatus)
 
+  // KYC bisa diakses oleh:
+  // 1) disbursement_user (flow disbursement), atau
+  // 2) merchant dengan total_earned >= ambang KYC (flow withdrawal platform)
+  async function getKycEligibility(client) {
+    const threshold = DISBURSEMENT.KYC_THRESHOLD
+
+    if (client.role === 'disbursement_user') {
+      return { eligible: true, reason: 'disbursement_role', totalEarned: null, threshold }
+    }
+
+    const balance = await db.clientBalance.findUnique({
+      where: { clientId: client.id },
+      select: { totalEarned: true }
+    })
+    const totalEarned = Number(balance?.totalEarned || 0)
+    if (totalEarned >= threshold) {
+      return { eligible: true, reason: 'withdrawal_threshold', totalEarned, threshold }
+    }
+
+    return { eligible: false, reason: 'threshold_not_reached', totalEarned, threshold }
+  }
+
   // ── GET /kyc/status ───────────────────────────────────────
   // Cek status KYC user saat ini
   fastify.get('/status', async (request, reply) => {
     const client = request.client
 
-    // Cek role dulu
-    if (client.role !== 'disbursement_user') {
+    const eligibility = await getKycEligibility(client)
+    if (!eligibility.eligible) {
       return reply.success({
         eligible: false,
         role: client.role,
-        message: 'Fitur disbursement belum diaktifkan untuk akun Anda. Hubungi admin.'
+        total_earned: eligibility.totalEarned,
+        kyc_threshold: eligibility.threshold,
+        message: `KYC belum wajib. KYC akan diperlukan saat total earned mencapai Rp ${eligibility.threshold.toLocaleString('id-ID')}.`
       })
     }
 
@@ -39,14 +64,18 @@ export async function kycRoutes(fastify) {
       return reply.success({
         eligible: true,
         role: client.role,
+        total_earned: eligibility.totalEarned,
+        kyc_threshold: eligibility.threshold,
         kyc_status: null,
-        message: 'Silakan submit dokumen KYC untuk mulai menggunakan fitur Disbursement.'
+        message: 'Silakan submit dokumen KYC untuk melanjutkan fitur yang membutuhkan verifikasi.'
       })
     }
 
     return reply.success({
       eligible: true,
       role: client.role,
+      total_earned: eligibility.totalEarned,
+      kyc_threshold: eligibility.threshold,
       kyc_status: kyc.status,
       rejection_reason: kyc.rejectionReason || null,
       full_name: kyc.fullName,
@@ -75,11 +104,12 @@ export async function kycRoutes(fastify) {
     if (request.isImpersonation) return blockIfImpersonation(request, reply)
     const client = request.client
 
-    // 1. Cek role
-    if (client.role !== 'disbursement_user') {
+    // 1. Cek eligibility KYC
+    const eligibility = await getKycEligibility(client)
+    if (!eligibility.eligible) {
       return reply.fail(
-        'DISBURSEMENT_ROLE_REQUIRED',
-        'Fitur disbursement belum diaktifkan untuk akun Anda.',
+        'DISBURSEMENT_KYC_NOT_REQUIRED',
+        `KYC belum wajib. KYC akan tersedia saat total earned mencapai Rp ${eligibility.threshold.toLocaleString('id-ID')}.`,
         403
       )
     }
