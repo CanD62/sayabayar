@@ -138,17 +138,21 @@ async function assignUniqueCodeWithRetry(db, redis, invoiceId, channelId, amount
 }
 
 /**
- * Select the best QRIS channel using least-loaded strategy.
- * Picks the active QRIS channel with the fewest pending invoices,
- * skipping channels with open circuit breakers.
+ * Select QRIS channel using round-robin strategy.
+ * Rotates fairly across healthy channels and skips circuit-open channels.
+ * Uses Redis to persist the last selected channel across instances.
  */
-async function selectLeastLoadedQrisChannel(db, channelWhere) {
-  // 1. Get all matching QRIS channels
+async function selectRoundRobinQrisChannel(db, redis, channelWhere, scopeKey, fallbackEntropy = '') {
+  // 1. Get all matching QRIS channels (deterministic order for stable rotation)
   const qrisChannels = await db.paymentChannel.findMany({
     where: {
       ...channelWhere,
       channelType: { in: ['qris_bca', 'qris_gopay', 'qris_bri'] }
     },
+    orderBy: [
+      { createdAt: 'asc' },
+      { id: 'asc' }
+    ],
     include: {
       channelState: {
         select: { circuitState: true }
@@ -164,23 +168,35 @@ async function selectLeastLoadedQrisChannel(db, channelWhere) {
   )
   const candidates = healthyChannels.length > 0 ? healthyChannels : qrisChannels
 
-  // 3. Count pending invoices per channel — single groupBy query (not N separate count queries)
-  const channelIds = candidates.map(ch => ch.id)
-  const pendingGroups = await db.invoice.groupBy({
-    by: ['paymentChannelId'],
-    where: {
-      paymentChannelId: { in: channelIds },
-      status: { in: ['pending', 'user_confirmed'] }
-    },
-    _count: { id: true }
-  })
+  if (candidates.length === 1) return candidates[0]
 
-  const countMap = new Map(pendingGroups.map(r => [r.paymentChannelId, r._count.id]))
+  // 3. Continue from the next channel after the last-picked channel.
+  const rrKey = `rr:qris:last:${scopeKey}`
+  let nextIndex = 0
 
-  // 4. Pick the one with the fewest pending invoices
-  const withCounts = candidates.map(ch => ({ channel: ch, pendingCount: countMap.get(ch.id) ?? 0 }))
-  withCounts.sort((a, b) => a.pendingCount - b.pendingCount)
-  return withCounts[0].channel
+  try {
+    const lastChannelId = await redis.get(rrKey)
+    if (lastChannelId) {
+      const lastIdx = candidates.findIndex(ch => ch.id === lastChannelId)
+      if (lastIdx >= 0) nextIndex = (lastIdx + 1) % candidates.length
+    }
+  } catch {
+    // Redis unavailable: fall back to deterministic spread by invoice id/token
+    const entropy = String(fallbackEntropy || '')
+    const hashSeed = entropy.split('').reduce((sum, ch) => sum + ch.charCodeAt(0), 0)
+    nextIndex = hashSeed % candidates.length
+  }
+
+  const selected = candidates[nextIndex]
+
+  // 4. Persist selected channel as "last used" for next rotation turn.
+  try {
+    await redis.set(rrKey, selected.id, 'EX', 30 * 24 * 60 * 60)
+  } catch {
+    // Ignore persistence failure; selection still succeeds.
+  }
+
+  return selected
 }
 
 export async function payRoutes(fastify) {
@@ -311,7 +327,7 @@ export async function payRoutes(fastify) {
   // ── POST /pay/:token/select-channel ─────────────────────
   // Customer selects payment method → generate unique code
   // Accepts { channel_id: "xxx" } for specific channel (bank transfer)
-  // OR { channel_type: "qris" } for auto-selected QRIS (least-loaded)
+  // OR { channel_type: "qris" } for auto-selected QRIS (round-robin)
   fastify.post('/:token/select-channel', {
     config: {
       rateLimit: {
@@ -379,14 +395,24 @@ export async function payRoutes(fastify) {
     let channel
 
     if (channel_type === 'qris') {
-      // ── Auto-select QRIS channel (least-loaded) ──────────
+      // ── Auto-select QRIS channel (round-robin) ──────────
       const channelWhere = invoice.channelPreference === 'client'
         ? { isActive: true, deletedAt: null, clientId: invoice.clientId, channelOwner: 'client' }
         : { isActive: true, deletedAt: null, channelOwner: 'platform' }
 
-    const t1 = performance.now()
-    channel = await selectLeastLoadedQrisChannel(db, channelWhere)
-    console.log(`[Pay] step=selectQris ${Math.round(performance.now()-t1)}ms`)
+      const rrScopeKey = invoice.channelPreference === 'client'
+        ? `client:${invoice.clientId}`
+        : 'platform'
+
+      const t1 = performance.now()
+      channel = await selectRoundRobinQrisChannel(
+        db,
+        redisForLock,
+        channelWhere,
+        rrScopeKey,
+        invoice.id || invoice.paymentToken
+      )
+      console.log(`[Pay] step=selectQris ${Math.round(performance.now()-t1)}ms`)
 
       if (!channel) {
         return reply.fail('CHANNEL_NOT_FOUND', 'Tidak ada QRIS channel yang tersedia', 404)
