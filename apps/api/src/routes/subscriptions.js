@@ -14,8 +14,20 @@ const PLATFORM_CLIENT_ID = 'platform-owner-000000000000000'
 function generateInvoiceNumber() {
   const now = new Date()
   const date = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`
-  const rand = String(Math.floor(Math.random() * 10000)).padStart(4, '0')
-  return `SUB-${date}-${rand}`
+  const time = `${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}${String(now.getMilliseconds()).padStart(3, '0')}`
+  const rand = String(randomBytes(4).readUInt32BE(0) % 1_000_000).padStart(6, '0')
+  return `SUB-${date}-${time}-${rand}`
+}
+
+function isInvoiceNumberUniqueViolation(err) {
+  if (err?.code !== 'P2002') return false
+  const target = Array.isArray(err.meta?.target)
+    ? err.meta.target.join(',')
+    : String(err.meta?.target ?? '')
+  const haystack = `${target} ${err.message ?? ''}`.toLowerCase()
+  return haystack.includes('invoicenumber') ||
+    haystack.includes('invoice_number') ||
+    haystack.includes('invoices_invoice_number_key')
 }
 
 /**
@@ -26,15 +38,9 @@ async function createInvoiceWithRetry(db, data, maxRetries = 5) {
     try {
       return await db.invoice.create({ data })
     } catch (err) {
-      const isUniqueViolation = err.code === 'P2002' &&
-        err.meta?.target?.includes('invoiceNumber')
+      const isUniqueViolation = isInvoiceNumberUniqueViolation(err)
       if (!isUniqueViolation || attempt === maxRetries - 1) throw err
-      // Regenerate invoice number with extra entropy on retries
-      const now = new Date()
-      const date = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`
-      const rand = String(Math.floor(Math.random() * 10000)).padStart(4, '0')
-      const ms = String(now.getMilliseconds()).padStart(3, '0')
-      data.invoiceNumber = `SUB-${date}-${rand}${ms}`
+      data.invoiceNumber = generateInvoiceNumber()
     }
   }
 }
