@@ -337,6 +337,7 @@ model Withdrawal {
   destinationBank    String           @map("destination_bank") @db.VarChar(50)
   destinationAccount String           @map("destination_account") @db.VarChar(50)
   destinationName    String           @map("destination_name") @db.VarChar(100)
+  reasonCode         String?          @map("reason_code") @db.VarChar(50)
   status             WithdrawalStatus @default(pending)
   rejectionReason    String?          @map("rejection_reason") @db.Text
   retryCount         Int              @default(0) @map("retry_count")         // berapa kali sudah dicoba ke Flip

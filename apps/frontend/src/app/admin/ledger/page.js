@@ -1,10 +1,12 @@
 'use client'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { api } from '@/lib/api'
-import { X, AlertTriangle, Plus, ArrowUpRight, Copy, Check, Loader2, RefreshCw } from 'lucide-react'
+import { useToast } from '@/components/Toast'
+import { X, AlertTriangle, Plus, ArrowUpRight, Copy, Check, Loader2 } from 'lucide-react'
 import AdminTable from '@/components/AdminTable'
 
 const fmt = (n) => new Intl.NumberFormat('id-ID').format(Math.round(n))
+const WITHDRAW_FEE = 2_500
 
 const TYPE_CONFIG = {
   credit_pending:   { label: 'Credit Pending',   cls: 'badge-warning', prefix: '+' },
@@ -454,6 +456,248 @@ function DetailRow({ label, value, bold, accent, copiable, onCopy, isCopied }) {
   )
 }
 
+function ManualWithdrawalModal({ open, onClose, merchant, onSuccess }) {
+  const toast = useToast()
+  const [submitting, setSubmitting] = useState(false)
+  const [acctChecking, setAcctChecking] = useState(false)
+  const [acctChecked, setAcctChecked] = useState(null) // null | { account_name } | 'error'
+  const checkTimerRef = useRef(null)
+  const [form, setForm] = useState({
+    amount_received: '',
+    destination_bank: 'bca',
+    destination_account: '',
+    destination_name: '',
+    reason_code: 'KYC_OPTOUT',
+  })
+
+  useEffect(() => {
+    if (!open || !merchant) return
+    const maxAmount = Math.max(0, Number(merchant.balance_available || 0) - WITHDRAW_FEE)
+    setForm({
+      amount_received: maxAmount > 0 ? String(Math.floor(maxAmount)) : '',
+      destination_bank: 'bca',
+      destination_account: '',
+      destination_name: '',
+      reason_code: 'KYC_OPTOUT',
+    })
+    setAcctChecking(false)
+    setAcctChecked(null)
+  }, [open, merchant])
+
+  useEffect(() => {
+    if (!open || !merchant) return
+    if (checkTimerRef.current) clearTimeout(checkTimerRef.current)
+
+    const account = form.destination_account?.trim()
+    const bank = form.destination_bank
+
+    if (!bank || !account || account.length < 5) {
+      setAcctChecked(null)
+      setForm(prev => ({ ...prev, destination_name: '' }))
+      return
+    }
+
+    checkTimerRef.current = setTimeout(async () => {
+      setAcctChecking(true)
+      setAcctChecked(null)
+      try {
+        const res = await api.post('/v1/lookup/check-account', {
+          account_number: account,
+          bank,
+        })
+        const name = res.data?.account_name?.trim() || ''
+        if (!name) throw new Error('Nama rekening tidak ditemukan')
+        setForm(prev => ({ ...prev, destination_name: name }))
+        setAcctChecked({ account_name: name })
+      } catch {
+        setForm(prev => ({ ...prev, destination_name: '' }))
+        setAcctChecked('error')
+      } finally {
+        setAcctChecking(false)
+      }
+    }, 650)
+
+    return () => {
+      if (checkTimerRef.current) clearTimeout(checkTimerRef.current)
+    }
+  }, [open, merchant, form.destination_account, form.destination_bank])
+
+  if (!open || !merchant) return null
+
+  const amount = Number(form.amount_received || 0)
+  const totalDebit = amount + WITHDRAW_FEE
+  const available = Number(merchant.balance_available || 0)
+  const insufficient = totalDebit > available
+  const amountBelowMinimum = amount > 0 && amount < 50_000
+  const accountIncomplete = !form.destination_bank || !form.destination_account || form.destination_account.length < 5
+  const accountUnverified = acctChecking || acctChecked === 'error' || !form.destination_name || form.destination_name.length < 2
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    if (submitting) return
+    if (!amount || amount < 50_000) return toast.error('Minimal amount diterima merchant Rp 50.000')
+    if (!form.destination_account || form.destination_account.length < 5) return toast.error('Nomor rekening tidak valid')
+    if (acctChecking) return toast.error('Sedang cek rekening, mohon tunggu sebentar')
+    if (acctChecked === 'error' || !form.destination_name || form.destination_name.length < 2) {
+      return toast.error('Nama rekening belum valid. Cek kembali bank dan nomor rekening.')
+    }
+    if (insufficient) return toast.error('Saldo available tidak cukup untuk nominal + fee')
+
+    setSubmitting(true)
+    try {
+      const payload = {
+        amount_received: amount,
+        destination_bank: form.destination_bank,
+        destination_account: form.destination_account.trim(),
+        destination_name: form.destination_name.trim(),
+      }
+
+      if (form.reason_code === 'KYC_OPTOUT') {
+        const res = await api.post(`/v1/admin/clients/${merchant.client_id}/kyc-optout/finalize`, payload)
+        toast.success(res.message || 'KYC opt-out diproses')
+      } else {
+        await api.post('/v1/admin/withdrawals', {
+          client_id: merchant.client_id,
+          ...payload,
+          ...(form.reason_code ? { reason_code: form.reason_code } : {}),
+        })
+        toast.success('Withdrawal berhasil dibuat dan otomatis diproses')
+      }
+      onSuccess?.()
+      onClose?.()
+    } catch (err) {
+      toast.error(err.message)
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 520 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <h3 className="modal-title" style={{ margin: 0 }}>Buat Withdrawal Admin</h3>
+          <button className="btn btn-ghost btn-sm" onClick={onClose}><X size={18} /></button>
+        </div>
+
+        <div style={{ padding: '12px 16px', borderRadius: 10, marginBottom: 16, background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)' }}>
+          <div style={{ fontWeight: 700, marginBottom: 4 }}>{merchant.client_name}</div>
+          <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginBottom: 8 }}>{merchant.client_email}</div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem' }}>
+            <span>Saldo available</span>
+            <strong style={{ color: '#10b981' }}>Rp {fmt(available)}</strong>
+          </div>
+        </div>
+
+        <form onSubmit={handleSubmit}>
+          <div className="form-group">
+            <label className="form-label">Bank Tujuan</label>
+            <BankSearchSelect value={form.destination_bank} onChange={(v) => setForm(prev => ({ ...prev, destination_bank: v }))} options={BANK_OPTIONS} />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Nomor Rekening</label>
+            <input
+              className="form-input"
+              value={form.destination_account}
+              onChange={e => setForm(prev => ({ ...prev, destination_account: e.target.value.replace(/\D/g, '') }))}
+              placeholder="Contoh: 1234567890"
+              required
+            />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Nama Pemilik Rekening</label>
+            <input
+              className="form-input"
+              value={form.destination_name}
+              readOnly
+              placeholder="Otomatis dari cek rekening"
+              required
+            />
+            <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              {acctChecking && (
+                <span className="badge badge-warning">Mengecek rekening...</span>
+              )}
+              {!acctChecking && acctChecked && acctChecked !== 'error' && (
+                <>
+                  <span className="badge badge-success">Terverifikasi</span>
+                  <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>{acctChecked.account_name}</span>
+                </>
+              )}
+              {!acctChecking && acctChecked === 'error' && (
+                <span className="badge badge-danger">Rekening tidak valid / nama rekening tidak ditemukan</span>
+              )}
+              {!acctChecking && !acctChecked && (
+                <span className="badge badge-info">Isi bank dan nomor rekening untuk verifikasi otomatis</span>
+              )}
+            </div>
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Nominal Diterima Merchant</label>
+            <input
+              type="text"
+              inputMode="numeric"
+              className="form-input"
+              value={form.amount_received}
+              onChange={e => setForm(prev => ({ ...prev, amount_received: e.target.value.replace(/\D/g, '') }))}
+              required
+            />
+            <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              {amountBelowMinimum ? (
+                <span className="badge badge-danger">Minimal withdrawal Rp 50.000</span>
+              ) : (
+                <span className="badge badge-info">Minimal withdrawal Rp 50.000</span>
+              )}
+            </div>
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Reason Code Audit</label>
+            <select
+              className="form-input"
+              value={form.reason_code}
+              onChange={e => setForm(prev => ({ ...prev, reason_code: e.target.value }))}
+            >
+              <option value="KYC_OPTOUT">KYC_OPTOUT</option>
+              <option value="">(Kosong)</option>
+            </select>
+          </div>
+
+          <div style={{ padding: '10px 12px', borderRadius: 10, background: insufficient ? 'rgba(239,68,68,0.08)' : 'rgba(16,185,129,0.08)', border: insufficient ? '1px solid rgba(239,68,68,0.25)' : '1px solid rgba(16,185,129,0.2)', marginBottom: 16, fontSize: '0.8rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+              <span>Amount received</span><strong>Rp {fmt(amount)}</strong>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+              <span>Fee withdrawal</span><strong>Rp {fmt(WITHDRAW_FEE)}</strong>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
+              <span>Total didebit saldo</span><span>Rp {fmt(totalDebit)}</span>
+            </div>
+            {insufficient && (
+              <div style={{ marginTop: 6, color: '#ef4444', fontWeight: 700 }}>
+                Saldo tidak cukup untuk nominal ini.
+              </div>
+            )}
+          </div>
+
+          <div className="modal-actions">
+            <button type="button" className="btn btn-ghost" onClick={onClose}>Batal</button>
+            <button
+              type="submit"
+              className="btn btn-primary"
+              disabled={submitting || insufficient || amountBelowMinimum || accountIncomplete || accountUnverified}
+            >
+              {submitting ? 'Memproses...' : 'Buat & Proses Otomatis'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
 // ── Modal styles ─────────────────────────────────────────────
 const styles = {
   overlay: {
@@ -556,6 +800,7 @@ const styles = {
 
 // ── Main Page ────────────────────────────────────────────────
 export default function AdminLedgerPage() {
+  const toast = useToast()
   const [entries, setEntries] = useState([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -568,6 +813,8 @@ export default function AdminLedgerPage() {
   const [merchantBalances, setMerchantBalances] = useState(null)
   const [mbLoading, setMbLoading] = useState(true)
   const [showTopup, setShowTopup] = useState(false)
+  const [showWithdrawal, setShowWithdrawal] = useState(false)
+  const [selectedMerchant, setSelectedMerchant] = useState(null)
   const PER_PAGE = 20
 
   const loadStats = useCallback(async () => {
@@ -665,6 +912,7 @@ export default function AdminLedgerPage() {
               { key: 'pending', label: 'Pending' },
               { key: 'earned', label: 'Earned', hide: true },
               { key: 'withdrawn', label: 'Withdrawn', hide: true },
+              { key: 'action', label: 'Aksi', width: 1 },
             ]}
             data={merchantBalances.merchants}
             cardTitle={(m) => (
@@ -676,20 +924,50 @@ export default function AdminLedgerPage() {
                 <span style={{ fontWeight: 800, color: '#10b981', fontSize: '1rem' }}>Rp {fmt(m.balance_available)}</span>
               </div>
             )}
-            renderRow={(m) => ({
-              cells: {
-                merchant: (
-                  <>
-                    <div style={{ fontWeight: 600, fontSize: '0.82rem' }}>{m.client_name}</div>
-                    <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>{m.client_email}</div>
-                  </>
-                ),
-                available: <span style={{ fontWeight: 800, color: '#10b981' }}>Rp {fmt(m.balance_available)}</span>,
-                pending: <span style={{ color: '#f59e0b', fontWeight: 600 }}>Rp {fmt(m.balance_pending)}</span>,
-                earned: <span className="text-sm text-muted">Rp {fmt(m.total_earned)}</span>,
-                withdrawn: <span className="text-sm text-muted">Rp {fmt(m.total_withdrawn)}</span>,
+            renderRow={(m) => {
+              const canWithdraw = Number(m.balance_available || 0) >= (50_000 + WITHDRAW_FEE)
+              return {
+                cells: {
+                  merchant: (
+                    <>
+                      <div style={{ fontWeight: 600, fontSize: '0.82rem' }}>{m.client_name}</div>
+                      <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>{m.client_email}</div>
+                    </>
+                  ),
+                  available: <span style={{ fontWeight: 800, color: '#10b981' }}>Rp {fmt(m.balance_available)}</span>,
+                  pending: <span style={{ color: '#f59e0b', fontWeight: 600 }}>Rp {fmt(m.balance_pending)}</span>,
+                  earned: <span className="text-sm text-muted">Rp {fmt(m.total_earned)}</span>,
+                  withdrawn: <span className="text-sm text-muted">Rp {fmt(m.total_withdrawn)}</span>,
+                  action: (
+                    <button
+                      className="btn btn-sm btn-primary"
+                      disabled={!canWithdraw}
+                      onClick={() => {
+                        if (!canWithdraw) return toast.error('Saldo belum cukup untuk withdrawal minimal')
+                        setSelectedMerchant(m)
+                        setShowWithdrawal(true)
+                      }}
+                    >
+                      Tarik
+                    </button>
+                  ),
+                },
+                actions: (
+                  <button
+                    className="btn btn-sm btn-primary"
+                    disabled={!canWithdraw}
+                    onClick={() => {
+                      if (!canWithdraw) return toast.error('Saldo belum cukup untuk withdrawal minimal')
+                      setSelectedMerchant(m)
+                      setShowWithdrawal(true)
+                    }}
+                    style={{ width: '100%', justifyContent: 'center' }}
+                  >
+                    Tarik
+                  </button>
+                )
               }
-            })}
+            }}
           />
         </div>
       )}
@@ -700,6 +978,17 @@ export default function AdminLedgerPage() {
         onClose={() => setShowTopup(false)}
         defaultAmount={merchantBalances?.total_needed || 50000}
         onSuccess={() => { loadStats(); loadMerchantBalances() }}
+      />
+      <ManualWithdrawalModal
+        open={showWithdrawal}
+        merchant={selectedMerchant}
+        onClose={() => { setShowWithdrawal(false); setSelectedMerchant(null) }}
+        onSuccess={() => {
+          loadStats()
+          loadMerchantBalances()
+          load(1)
+          setPage(1)
+        }}
       />
 
       {/* Filters */}

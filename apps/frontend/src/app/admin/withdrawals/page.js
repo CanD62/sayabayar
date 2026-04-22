@@ -59,6 +59,22 @@ export default function AdminWithdrawalsPage() {
     finally { setActionId(null) }
   }
 
+  const handleFinalizeOptOut = async (clientId, withdrawalId) => {
+    const key = `finalize:${withdrawalId}`
+    setActionId(key)
+    try {
+      const res = await api.post(`/v1/admin/clients/${clientId}/kyc-optout/finalize`, {
+        withdrawal_id: withdrawalId
+      })
+      toast.success(res.message || 'KYC opt-out berhasil difinalisasi')
+      load()
+    } catch (e) {
+      toast.error(e.message)
+    } finally {
+      setActionId(null)
+    }
+  }
+
   const totalPages = Math.ceil(total / PER_PAGE)
 
   return (
@@ -103,6 +119,7 @@ export default function AdminWithdrawalsPage() {
         renderRow={(w) => {
           const s = STATUS_CONFIG[w.status] || {}
           const canAct = ['pending', 'failed'].includes(w.status)
+          const canFinalizeOptOut = w.reason_code === 'KYC_OPTOUT' && w.status === 'processed' && w.client_status !== 'suspended'
           return {
             cells: {
               merchant: (<><div style={{ fontWeight: 600 }}>{w.client_name}</div><div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{w.client_email}</div></>),
@@ -111,24 +128,62 @@ export default function AdminWithdrawalsPage() {
               status: (
                 <>
                   <span className={`badge ${s.cls}`}>{s.label}</span>
+                  {w.reason_code && (
+                    <div style={{ marginTop: 4 }}>
+                      <span className="badge badge-info" style={{ fontSize: '0.64rem' }}>{w.reason_code}</span>
+                    </div>
+                  )}
+                  {w.reason_code === 'KYC_OPTOUT' && w.client_status === 'suspended' && (
+                    <div style={{ marginTop: 4 }}>
+                      <span className="badge badge-success" style={{ fontSize: '0.64rem' }}>ACCOUNT_SUSPENDED</span>
+                    </div>
+                  )}
                   {w.rejection_reason && <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: 2 }}>"{w.rejection_reason}"</div>}
                   {w.flip_trx_id && <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: 2 }}>Flip: {w.flip_trx_id}</div>}
                 </>
               ),
               requested: <span className="text-sm text-muted">{new Date(w.requested_at).toLocaleString('id-ID')}</span>,
-              action: canAct ? (
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'nowrap' }}>
-                  <button className="btn btn-sm" style={{ background: 'rgba(16,185,129,0.1)', color: '#10b981', border: '1px solid rgba(16,185,129,0.2)' }} onClick={() => handleProcess(w.id)} disabled={actionId === w.id}>✓ Proses</button>
-                  <button className="btn btn-sm" style={{ background: 'rgba(239,68,68,0.1)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.2)' }} onClick={() => setRejectTarget(w)} disabled={actionId === w.id}>✕ Tolak</button>
-                </div>
-              ) : null,
+              action: (
+                <>
+                  {canAct && (
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'nowrap' }}>
+                      <button className="btn btn-sm" style={{ background: 'rgba(16,185,129,0.1)', color: '#10b981', border: '1px solid rgba(16,185,129,0.2)' }} onClick={() => handleProcess(w.id)} disabled={actionId === w.id}>✓ Proses</button>
+                      <button className="btn btn-sm" style={{ background: 'rgba(239,68,68,0.1)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.2)' }} onClick={() => setRejectTarget(w)} disabled={actionId === w.id}>✕ Tolak</button>
+                    </div>
+                  )}
+                  {canFinalizeOptOut && (
+                    <button
+                      className="btn btn-sm"
+                      style={{ marginTop: canAct ? 6 : 0, background: 'rgba(99,102,241,0.12)', color: '#6366f1', border: '1px solid rgba(99,102,241,0.3)' }}
+                      onClick={() => handleFinalizeOptOut(w.client_id, w.id)}
+                      disabled={actionId === `finalize:${w.id}`}
+                    >
+                      {actionId === `finalize:${w.id}` ? 'Memproses...' : 'Finalize Opt-out'}
+                    </button>
+                  )}
+                </>
+              ),
             },
-            actions: canAct ? (
-              <div style={{ display: 'flex', gap: 6 }}>
-                <button className="btn btn-sm" style={{ flex: 1, background: 'rgba(16,185,129,0.1)', color: '#10b981', border: '1px solid rgba(16,185,129,0.2)', justifyContent: 'center' }} onClick={() => handleProcess(w.id)} disabled={actionId === w.id}>✓ Proses</button>
-                <button className="btn btn-sm" style={{ flex: 1, background: 'rgba(239,68,68,0.1)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.2)', justifyContent: 'center' }} onClick={() => setRejectTarget(w)} disabled={actionId === w.id}>✕ Tolak</button>
-              </div>
-            ) : null,
+            actions: (
+              <>
+                {canAct && (
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button className="btn btn-sm" style={{ flex: 1, background: 'rgba(16,185,129,0.1)', color: '#10b981', border: '1px solid rgba(16,185,129,0.2)', justifyContent: 'center' }} onClick={() => handleProcess(w.id)} disabled={actionId === w.id}>✓ Proses</button>
+                    <button className="btn btn-sm" style={{ flex: 1, background: 'rgba(239,68,68,0.1)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.2)', justifyContent: 'center' }} onClick={() => setRejectTarget(w)} disabled={actionId === w.id}>✕ Tolak</button>
+                  </div>
+                )}
+                {canFinalizeOptOut && (
+                  <button
+                    className="btn btn-sm"
+                    style={{ width: '100%', marginTop: canAct ? 6 : 0, background: 'rgba(99,102,241,0.12)', color: '#6366f1', border: '1px solid rgba(99,102,241,0.3)', justifyContent: 'center' }}
+                    onClick={() => handleFinalizeOptOut(w.client_id, w.id)}
+                    disabled={actionId === `finalize:${w.id}`}
+                  >
+                    {actionId === `finalize:${w.id}` ? 'Memproses...' : 'Finalize Opt-out'}
+                  </button>
+                )}
+              </>
+            ),
           }
         }}
         pagination={totalPages > 1 ? { page, totalPages, onPrev: () => setPage(p => p - 1), onNext: () => setPage(p => p + 1) } : null}

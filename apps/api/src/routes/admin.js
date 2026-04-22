@@ -5,6 +5,7 @@ import { authenticate, checkClientStatus, isAdmin } from '../middleware/authenti
 import { generateImpersonationToken } from '../utils/impersonation.js'
 import { encrypt, decrypt } from '@payment-gateway/shared/crypto'
 import { getAlaflipBalanceFull, decodeJwtPayload } from '@payment-gateway/shared/flip'
+import { WITHDRAW } from '@payment-gateway/shared/constants'
 import { Queue } from 'bullmq'
 
 // Queue prefix must match the scraper worker (apps/scraper/src/queues.js)
@@ -1323,6 +1324,180 @@ export async function adminRoutes(fastify) {
     return reply.success({ id, status, message: status === 'suspended' ? 'Akun merchant di-suspend' : 'Akun merchant diaktifkan kembali' })
   })
 
+  // ── POST /admin/clients/:id/kyc-optout/finalize ─────────
+  // Finalize flow:
+  // 1) Jika sudah ada withdrawal KYC_OPTOUT berstatus processed -> suspend akun.
+  // 2) Jika belum ada, bisa sekaligus create withdrawal KYC_OPTOUT (lalu auto-process).
+  fastify.post('/clients/:id/kyc-optout/finalize', {
+    schema: {
+      body: {
+        type: 'object',
+        properties: {
+          withdrawal_id: { type: 'string' },
+          amount_received: { type: 'number', minimum: WITHDRAW.MIN_AMOUNT },
+          destination_bank: { type: 'string', minLength: 2, maxLength: 50 },
+          destination_account: { type: 'string', minLength: 5, maxLength: 50 },
+          destination_name: { type: 'string', minLength: 2, maxLength: 100 },
+        }
+      }
+    }
+  }, async (request, reply) => {
+    const clientId = request.params.id
+    const {
+      withdrawal_id,
+      amount_received,
+      destination_bank,
+      destination_account,
+      destination_name,
+    } = request.body || {}
+
+    const client = await db.client.findUnique({ where: { id: clientId } })
+    if (!client) return reply.fail('NOT_FOUND', 'Merchant tidak ditemukan', 404)
+    if (client.email === process.env.ADMIN_EMAIL) {
+      return reply.fail('FORBIDDEN', 'Tidak bisa finalize KYC opt-out untuk akun admin', 403)
+    }
+
+    const targetWithdrawal = withdrawal_id
+      ? await db.withdrawal.findFirst({
+        where: { id: withdrawal_id, clientId, reasonCode: 'KYC_OPTOUT' }
+      })
+      : await db.withdrawal.findFirst({
+        where: { clientId, reasonCode: 'KYC_OPTOUT' },
+        orderBy: { requestedAt: 'desc' }
+      })
+
+    if (withdrawal_id && !targetWithdrawal) {
+      return reply.fail('WITHDRAWAL_NOT_FOUND', 'Withdrawal KYC_OPTOUT tidak ditemukan untuk merchant ini.', 404)
+    }
+
+    if (targetWithdrawal?.status === 'processed') {
+      if (client.status !== 'suspended') {
+        await db.client.update({ where: { id: clientId }, data: { status: 'suspended' } })
+        fastify.log.info(`[Admin] KYC opt-out finalized: client ${clientId} suspended (withdrawal ${targetWithdrawal.id})`)
+      }
+
+      return reply.success({
+        client_id: clientId,
+        withdrawal_id: targetWithdrawal.id,
+        withdrawal_status: targetWithdrawal.status,
+        client_status: 'suspended',
+        finalized: true,
+        message: 'KYC opt-out berhasil difinalisasi. Akun merchant di-suspend.'
+      })
+    }
+
+    if (targetWithdrawal?.status === 'pending' || targetWithdrawal?.status === 'processing') {
+      return reply.fail(
+        'KYC_OPTOUT_WITHDRAWAL_IN_PROGRESS',
+        'Withdrawal KYC_OPTOUT masih diproses. Finalisasi suspend dilakukan setelah status processed.',
+        422
+      )
+    }
+
+    if (targetWithdrawal?.status === 'failed') {
+      return reply.fail(
+        'KYC_OPTOUT_WITHDRAWAL_FAILED',
+        'Withdrawal KYC_OPTOUT berstatus failed. Lakukan retry/penanganan dulu sebelum finalisasi.',
+        422
+      )
+    }
+
+    if (targetWithdrawal?.status === 'rejected') {
+      return reply.fail(
+        'KYC_OPTOUT_WITHDRAWAL_REJECTED',
+        'Withdrawal KYC_OPTOUT ditolak. Buat withdrawal baru untuk melanjutkan finalisasi.',
+        422
+      )
+    }
+
+    const hasBankPayload = Boolean(destination_bank && destination_account && destination_name)
+    if (!hasBankPayload) {
+      return reply.fail(
+        'KYC_OPTOUT_WITHDRAWAL_REQUIRED',
+        'Belum ada withdrawal KYC_OPTOUT. Kirim data rekening untuk membuat withdrawal terlebih dahulu.',
+        422
+      )
+    }
+
+    const balance = await db.clientBalance.findUnique({ where: { clientId } })
+    const fee = WITHDRAW.DEFAULT_FEE
+    const computedMaxAmount = Math.max(0, Number(balance?.balanceAvailable || 0) - fee)
+    const amountReceived = Number(amount_received || computedMaxAmount)
+    const totalDebit = amountReceived + fee
+
+    if (amountReceived < WITHDRAW.MIN_AMOUNT) {
+      return reply.fail(
+        'VALIDATION_ERROR',
+        `Nominal amount_received minimal Rp ${WITHDRAW.MIN_AMOUNT.toLocaleString('id-ID')}.`,
+        422
+      )
+    }
+
+    if (!balance || Number(balance.balanceAvailable) < totalDebit) {
+      return reply.fail(
+        'INSUFFICIENT_BALANCE',
+        `Saldo merchant tidak cukup. Diperlukan Rp ${totalDebit.toLocaleString('id-ID')} (Rp ${amountReceived.toLocaleString('id-ID')} + biaya Rp ${fee.toLocaleString('id-ID')}).`,
+        422
+      )
+    }
+
+    const pendingAnyWithdrawal = await db.withdrawal.findFirst({
+      where: { clientId, status: { in: ['pending', 'processing'] } }
+    })
+    if (pendingAnyWithdrawal) {
+      return reply.fail(
+        'WITHDRAWAL_PENDING_EXISTS',
+        'Masih ada withdrawal pending/processing untuk merchant ini.',
+        422
+      )
+    }
+
+    const [created] = await db.$transaction([
+      db.withdrawal.create({
+        data: {
+          clientId,
+          amount: totalDebit,
+          fee,
+          amountReceived,
+          destinationBank: destination_bank.trim().toUpperCase(),
+          destinationAccount: destination_account.trim(),
+          destinationName: destination_name.trim(),
+          reasonCode: 'KYC_OPTOUT',
+        }
+      }),
+      db.clientBalance.update({
+        where: { clientId },
+        data: {
+          balanceAvailable: { decrement: totalDebit },
+          totalWithdrawn: { increment: totalDebit },
+        }
+      }),
+    ])
+
+    await db.balanceLedger.create({
+      data: {
+        clientId,
+        withdrawalId: created.id,
+        type: 'debit_withdraw',
+        amount: amountReceived,
+        availableAt: new Date(),
+        note: `Admin withdrawal (KYC_OPTOUT): ${destination_bank.toUpperCase()} ${destination_account}`
+      }
+    })
+
+    await flipQueue.add('transfer', { withdrawalId: created.id, triggeredBy: 'admin_kyc_optout_finalize' })
+
+    fastify.log.info(`[Admin] KYC opt-out withdrawal created ${created.id} for client ${clientId}`)
+    return reply.success({
+      client_id: clientId,
+      withdrawal_id: created.id,
+      withdrawal_status: created.status,
+      client_status: client.status,
+      finalized: false,
+      message: 'Withdrawal KYC_OPTOUT berhasil dibuat dan dijadwalkan. Jalankan finalize lagi setelah status processed untuk suspend akun.'
+    }, 201)
+  })
+
   // ── PATCH /admin/clients/:id/plan ───────────────────────
   fastify.patch('/clients/:id/plan', {
     schema: {
@@ -1706,7 +1881,7 @@ export async function adminRoutes(fastify) {
     const [withdrawals, total] = await Promise.all([
       db.withdrawal.findMany({
         where,
-        include: { client: { select: { id: true, name: true, email: true } } },
+        include: { client: { select: { id: true, name: true, email: true, status: true } } },
         orderBy: { requestedAt: 'desc' },
         skip: (page - 1) * per_page,
         take: per_page,
@@ -1719,12 +1894,14 @@ export async function adminRoutes(fastify) {
       client_id: w.clientId,
       client_name: w.client.name,
       client_email: w.client.email,
+      client_status: w.client.status,
       amount: Number(w.amount),
       fee: Number(w.fee),
       amount_received: Number(w.amountReceived),
       destination_bank: w.destinationBank,
       destination_account: w.destinationAccount,
       destination_name: w.destinationName,
+      reason_code: w.reasonCode,
       status: w.status,
       rejection_reason: w.rejectionReason,
       retry_count: w.retryCount,
@@ -1734,6 +1911,121 @@ export async function adminRoutes(fastify) {
     }))
 
     return reply.paginated(mapped, { page, per_page, total, total_pages: Math.ceil(total / per_page) })
+  })
+
+  // ── POST /admin/withdrawals ──────────────────────────────
+  // Admin create withdrawal langsung (manual input rekening + nominal)
+  // Fee selalu Rp 2.500 per transaksi.
+  fastify.post('/withdrawals', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['client_id', 'amount_received', 'destination_bank', 'destination_account', 'destination_name'],
+        properties: {
+          client_id: { type: 'string' },
+          amount_received: { type: 'number', minimum: WITHDRAW.MIN_AMOUNT },
+          destination_bank: { type: 'string', minLength: 2, maxLength: 50 },
+          destination_account: { type: 'string', minLength: 5, maxLength: 50 },
+          destination_name: { type: 'string', minLength: 2, maxLength: 100 },
+          reason_code: { type: 'string', minLength: 3, maxLength: 50 },
+        }
+      }
+    }
+  }, async (request, reply) => {
+    const {
+      client_id,
+      amount_received,
+      destination_bank,
+      destination_account,
+      destination_name,
+      reason_code
+    } = request.body
+
+    const amountReceived = Number(amount_received)
+    const fee = WITHDRAW.DEFAULT_FEE
+    const totalDebit = amountReceived + fee
+    const reasonCode = reason_code?.trim() || null
+
+    const [client, balance] = await Promise.all([
+      db.client.findUnique({ where: { id: client_id } }),
+      db.clientBalance.findUnique({ where: { clientId: client_id } }),
+    ])
+
+    if (!client) return reply.fail('NOT_FOUND', 'Merchant tidak ditemukan', 404)
+    if (client_id === 'platform-owner-000000000000000') {
+      return reply.fail('VALIDATION_ERROR', 'Tidak bisa membuat withdrawal untuk platform owner', 422)
+    }
+
+    if (!balance || Number(balance.balanceAvailable) < totalDebit) {
+      return reply.fail(
+        'INSUFFICIENT_BALANCE',
+        `Saldo merchant tidak cukup. Diperlukan Rp ${totalDebit.toLocaleString('id-ID')} (Rp ${amountReceived.toLocaleString('id-ID')} + biaya Rp ${fee.toLocaleString('id-ID')}).`,
+        422
+      )
+    }
+
+    const pending = await db.withdrawal.findFirst({
+      where: {
+        clientId: client_id,
+        status: { in: ['pending', 'processing'] }
+      }
+    })
+    if (pending) {
+      return reply.fail('WITHDRAWAL_PENDING_EXISTS', 'Masih ada withdrawal pending/processing untuk merchant ini.', 422)
+    }
+
+    const [withdrawal] = await db.$transaction([
+      db.withdrawal.create({
+        data: {
+          clientId: client_id,
+          amount: totalDebit,
+          fee,
+          amountReceived,
+          destinationBank: destination_bank.trim().toUpperCase(),
+          destinationAccount: destination_account.trim(),
+          destinationName: destination_name.trim(),
+          reasonCode,
+        }
+      }),
+      db.clientBalance.update({
+        where: { clientId: client_id },
+        data: {
+          balanceAvailable: { decrement: totalDebit },
+          totalWithdrawn: { increment: totalDebit },
+        }
+      }),
+    ])
+
+    await db.balanceLedger.create({
+      data: {
+        clientId: client_id,
+        withdrawalId: withdrawal.id,
+        type: 'debit_withdraw',
+        amount: amountReceived,
+        availableAt: new Date(),
+        note: `Admin withdrawal: ${destination_bank.toUpperCase()} ${destination_account}`
+      }
+    })
+
+    // Otomatis langsung diproses oleh worker Flip.
+    await flipQueue.add('transfer', { withdrawalId: withdrawal.id, triggeredBy: 'admin_create' })
+
+    fastify.log.info(`[Admin] Created withdrawal ${withdrawal.id} for ${client.email} amount=${amountReceived} fee=${fee}`)
+
+    return reply.success({
+      id: withdrawal.id,
+      client_id: withdrawal.clientId,
+      amount: Number(withdrawal.amount),
+      fee: Number(withdrawal.fee),
+      amount_received: Number(withdrawal.amountReceived),
+      reason_code: withdrawal.reasonCode,
+      status: withdrawal.status,
+      destination_bank: withdrawal.destinationBank,
+      destination_account: withdrawal.destinationAccount,
+      destination_name: withdrawal.destinationName,
+      requested_at: withdrawal.requestedAt,
+      message: 'Withdrawal berhasil dibuat dan otomatis dijadwalkan untuk diproses.'
+    }, 201)
   })
 
   // ── POST /admin/withdrawals/:id/process ─────────────────
