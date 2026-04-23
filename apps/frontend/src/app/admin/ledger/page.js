@@ -14,7 +14,7 @@ const TYPE_CONFIG = {
   debit_withdraw:   { label: 'Debit Withdraw',    cls: 'badge-danger',  prefix: '−' },
 }
 
-const BANK_OPTIONS = [
+const BANK_OPTIONS_FALLBACK = [
   { code: 'mandiri', name: 'Bank Mandiri' },
   { code: 'bca', name: 'BCA' },
   { code: 'bni', name: 'BNI' },
@@ -165,7 +165,7 @@ function BankSearchSelect({ value, onChange, options }) {
 }
 
 // ── Top-up Flip Modal ──────────────────────────────────────
-function TopupFlipModal({ open, onClose, defaultAmount, onSuccess }) {
+function TopupFlipModal({ open, onClose, defaultAmount, onSuccess, bankOptions = BANK_OPTIONS_FALLBACK }) {
   const [step, setStep] = useState('form') // form → transferring → confirming → polling → done
   const [amount, setAmount] = useState(defaultAmount || 50000)
   const [senderBank, setSenderBank] = useState('mandiri')
@@ -178,10 +178,11 @@ function TopupFlipModal({ open, onClose, defaultAmount, onSuccess }) {
   const [balanceLoading, setBalanceLoading] = useState(false)
 
   useEffect(() => {
+    const defaultBank = bankOptions.find(b => b.code === 'mandiri')?.code || bankOptions[0]?.code || 'mandiri'
     if (open) {
       setStep('form')
       setAmount(defaultAmount || 50000)
-      setSenderBank('mandiri')
+      setSenderBank(defaultBank)
       setError('')
       setTopupData(null)
       setCopied('')
@@ -194,7 +195,7 @@ function TopupFlipModal({ open, onClose, defaultAmount, onSuccess }) {
         .finally(() => setBalanceLoading(false))
     }
     return () => { if (pollInterval) clearInterval(pollInterval) }
-  }, [open])
+  }, [open, defaultAmount, bankOptions])
 
   const copyText = (text, label) => {
     navigator.clipboard.writeText(text)
@@ -343,7 +344,7 @@ function TopupFlipModal({ open, onClose, defaultAmount, onSuccess }) {
               <BankSearchSelect
                 value={senderBank}
                 onChange={setSenderBank}
-                options={BANK_OPTIONS}
+                options={bankOptions}
               />
             </div>
 
@@ -456,7 +457,7 @@ function DetailRow({ label, value, bold, accent, copiable, onCopy, isCopied }) {
   )
 }
 
-function ManualWithdrawalModal({ open, onClose, merchant, onSuccess }) {
+function ManualWithdrawalModal({ open, onClose, merchant, onSuccess, bankOptions = BANK_OPTIONS_FALLBACK }) {
   const toast = useToast()
   const [submitting, setSubmitting] = useState(false)
   const [acctChecking, setAcctChecking] = useState(false)
@@ -472,17 +473,18 @@ function ManualWithdrawalModal({ open, onClose, merchant, onSuccess }) {
 
   useEffect(() => {
     if (!open || !merchant) return
+    const defaultBank = bankOptions.find(b => b.code === 'bca')?.code || bankOptions[0]?.code || 'bca'
     const maxAmount = Math.max(0, Number(merchant.balance_available || 0) - WITHDRAW_FEE)
     setForm({
       amount_received: maxAmount > 0 ? String(Math.floor(maxAmount)) : '',
-      destination_bank: 'bca',
+      destination_bank: defaultBank,
       destination_account: '',
       destination_name: '',
       reason_code: 'KYC_OPTOUT',
     })
     setAcctChecking(false)
     setAcctChecked(null)
-  }, [open, merchant])
+  }, [open, merchant, bankOptions])
 
   useEffect(() => {
     if (!open || !merchant) return
@@ -592,7 +594,7 @@ function ManualWithdrawalModal({ open, onClose, merchant, onSuccess }) {
         <form onSubmit={handleSubmit}>
           <div className="form-group">
             <label className="form-label">Bank Tujuan</label>
-            <BankSearchSelect value={form.destination_bank} onChange={(v) => setForm(prev => ({ ...prev, destination_bank: v }))} options={BANK_OPTIONS} />
+            <BankSearchSelect value={form.destination_bank} onChange={(v) => setForm(prev => ({ ...prev, destination_bank: v }))} options={bankOptions} />
           </div>
 
           <div className="form-group">
@@ -811,6 +813,7 @@ export default function AdminLedgerPage() {
   const [stats, setStats] = useState(null)
   const [statsLoading, setStatsLoading] = useState(true)
   const [merchantBalances, setMerchantBalances] = useState(null)
+  const [bankOptions, setBankOptions] = useState(BANK_OPTIONS_FALLBACK)
   const [mbLoading, setMbLoading] = useState(true)
   const [showTopup, setShowTopup] = useState(false)
   const [showWithdrawal, setShowWithdrawal] = useState(false)
@@ -829,6 +832,23 @@ export default function AdminLedgerPage() {
     finally { setMbLoading(false) }
   }, [])
 
+  const loadBankOptions = useCallback(async () => {
+    try {
+      const res = await api.get('/v1/lookup/banks')
+      const normalized = Array.isArray(res.data)
+        ? res.data
+          .map(b => ({
+            code: b?.code || b?.id,
+            name: b?.name || b?.alias_name || b?.official_name || b?.code || b?.id
+          }))
+          .filter(b => b.code && b.name)
+        : []
+      if (normalized.length > 0) setBankOptions(normalized)
+    } catch {
+      setBankOptions(BANK_OPTIONS_FALLBACK)
+    }
+  }, [])
+
   const load = async (p = page) => {
     setLoading(true)
     try {
@@ -842,7 +862,7 @@ export default function AdminLedgerPage() {
     } finally { setLoading(false) }
   }
 
-  useEffect(() => { loadStats(); loadMerchantBalances() }, [])
+  useEffect(() => { loadStats(); loadMerchantBalances(); loadBankOptions() }, [loadStats, loadMerchantBalances, loadBankOptions])
   useEffect(() => { load(1); setPage(1) }, [filterType, dateFrom, dateTo])
   useEffect(() => { load(page) }, [page])
 
@@ -978,10 +998,12 @@ export default function AdminLedgerPage() {
         onClose={() => setShowTopup(false)}
         defaultAmount={merchantBalances?.total_needed || 50000}
         onSuccess={() => { loadStats(); loadMerchantBalances() }}
+        bankOptions={bankOptions}
       />
       <ManualWithdrawalModal
         open={showWithdrawal}
         merchant={selectedMerchant}
+        bankOptions={bankOptions}
         onClose={() => { setShowWithdrawal(false); setSelectedMerchant(null) }}
         onSuccess={() => {
           loadStats()
