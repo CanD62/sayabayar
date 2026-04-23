@@ -60,7 +60,8 @@ export async function lookupRoutes(fastify) {
         required: ['account_number', 'bank'],
         properties: {
           account_number: { type: 'string', minLength: 5, maxLength: 30, pattern: '^[0-9]+$' },
-          bank:           { type: 'string', minLength: 2, maxLength: 10, pattern: '^[A-Za-z0-9_]+$' }
+          // Kode bank dari provider bisa panjang (contoh: "kesejahteraan_ekonomi")
+          bank:           { type: 'string', minLength: 2, maxLength: 50, pattern: '^[A-Za-z0-9_]+$' }
         }
       }
     }
