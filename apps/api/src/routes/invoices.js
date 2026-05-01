@@ -125,7 +125,7 @@ export async function invoiceRoutes(fastify) {
         required: ['amount'],
         properties: {
           channel_preference: { type: 'string', enum: ['platform', 'client'], default: 'platform' },
-          amount:             { type: 'number', minimum: INVOICE.MIN_AMOUNT },
+          amount:             { type: 'number', minimum: INVOICE.PRO_MIN_AMOUNT },
           description:        { type: 'string' },
           customer_name:      { type: 'string', maxLength: 200 },
           customer_email:     { type: 'string', format: 'email' },
@@ -149,6 +149,13 @@ export async function invoiceRoutes(fastify) {
     // Exception: Disbursement Pro → unlimited, tapi MDR 0.4% dipotong dari settlement.
     const activePlan = getActivePlan(request.client)
     const isDisbursementPro = request.client.role === 'disbursement_user' && !!activePlan
+
+    // ── Guard: minimum amount based on plan ─────────────────
+    // Pro accounts can create invoices from Rp 100, free accounts from Rp 1.000
+    const minAmount = activePlan ? INVOICE.PRO_MIN_AMOUNT : INVOICE.MIN_AMOUNT
+    if (amount < minAmount) {
+      return reply.fail('AMOUNT_TOO_LOW', `Nominal invoice minimal Rp ${minAmount.toLocaleString('id-ID')}.`, 422)
+    }
 
     if (channel_preference === 'platform' && amount > INVOICE.FREE_TIER_MAX_AMOUNT && !isDisbursementPro) {
       const msg = activePlan

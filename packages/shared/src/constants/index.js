@@ -211,6 +211,7 @@ export const MATCH = {
 // Invoice config
 export const INVOICE = {
   MIN_AMOUNT: 1_000,
+  PRO_MIN_AMOUNT: 100,
   BANK_TRANSFER_MIN_AMOUNT: 10_000,
 
   // ── Free Tier limits ──────────────────────────────────
@@ -232,8 +233,9 @@ export const INVOICE = {
 // The unique code is added to the invoice amount for auto-matching.
 // Higher invoice → higher code range → more platform revenue.
 export const UNIQUE_CODE_TIERS = [
-  { maxAmount: 2_999, min: 1, max: 99 },  // < Rp 3.000
-  { maxAmount: 4_999, min: 100, max: 199 },  // Rp 3.000 – Rp 5.000
+  { maxAmount: 999, min: 1, max: 30 },      // Rp 100 – Rp 999
+  { maxAmount: 2_999, min: 31, max: 99 },    // Rp 1.000 – Rp 2.999
+  { maxAmount: 4_999, min: 100, max: 199 },  // Rp 3.000 – Rp 4.999
   { maxAmount: 49_999, min: 201, max: 500 },  // Rp 5.000 – Rp 49.999
   { maxAmount: Infinity, min: 501, max: 999 }   // ≥ Rp 50.000
 ]

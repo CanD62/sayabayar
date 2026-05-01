@@ -334,7 +334,8 @@ export async function payRoutes(fastify) {
         max: 5,
         timeWindow: '5 minutes',
         keyGenerator: (req) => `select-channel:${req.params.token}`,
-        errorResponseBuilder: () => ({
+        errorResponseBuilder: (_req, _ctx) => ({
+          statusCode: 429,
           success: false,
           error: { code: 'RATE_LIMIT_EXCEEDED', message: 'Terlalu banyak percobaan. Coba lagi dalam beberapa menit.' }
         })
@@ -475,10 +476,11 @@ export async function payRoutes(fastify) {
   fastify.post('/:token/confirm', {
     config: {
       rateLimit: {
-        max: 3,
+        max: 5,
         timeWindow: '5 minutes',
-        keyGenerator: (req) => req.ip,
-        errorResponseBuilder: () => ({
+        keyGenerator: (req) => `confirm:${req.params.token}`,
+        errorResponseBuilder: (_req, _ctx) => ({
+          statusCode: 429,
           success: false,
           error: { code: 'RATE_LIMIT_EXCEEDED', message: 'Terlalu banyak percobaan konfirmasi. Coba lagi dalam beberapa menit.' }
         })
