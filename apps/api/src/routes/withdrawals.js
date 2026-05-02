@@ -11,8 +11,8 @@ function getFlipQueue(redis) {
   const url = new URL(process.env.REDIS_URL || 'redis://localhost:6379')
   return new Queue('flip', {
     connection: {
-      host:     url.hostname,
-      port:     parseInt(url.port) || 6379,
+      host: url.hostname,
+      port: parseInt(url.port) || 6379,
       password: url.password || undefined,
       maxRetriesPerRequest: null
     }
@@ -21,8 +21,8 @@ function getFlipQueue(redis) {
 
 
 export async function withdrawalRoutes(fastify) {
-  const db       = fastify.db
-  const redis    = fastify.redis
+  const db = fastify.db
+  const redis = fastify.redis
   const flipQueue = getFlipQueue()
 
   fastify.addHook('preHandler', authenticate)
@@ -79,7 +79,7 @@ export async function withdrawalRoutes(fastify) {
       querystring: {
         type: 'object',
         properties: {
-          page:     { type: 'integer', minimum: 1, default: 1 },
+          page: { type: 'integer', minimum: 1, default: 1 },
           per_page: { type: 'integer', minimum: 1, maximum: 100, default: 20 }
         }
       }
@@ -89,27 +89,27 @@ export async function withdrawalRoutes(fastify) {
 
     const [withdrawals, total] = await Promise.all([
       db.withdrawal.findMany({
-        where:   { clientId: request.client.id },
+        where: { clientId: request.client.id },
         orderBy: { requestedAt: 'desc' },
-        skip:    (page - 1) * per_page,
-        take:    per_page
+        skip: (page - 1) * per_page,
+        take: per_page
       }),
       db.withdrawal.count({ where: { clientId: request.client.id } })
     ])
 
     const mapped = withdrawals.map(w => ({
-      id:                 w.id,
-      amount:             Number(w.amount),
-      fee:                Number(w.fee),
-      amount_received:    Number(w.amountReceived),
-      destination_bank:   w.destinationBank,
-      destination_account:w.destinationAccount,
-      destination_name:   w.destinationName,
-      status:             w.status,
-      rejection_reason:   w.rejectionReason,
-      retry_count:        w.retryCount,
-      requested_at:       w.requestedAt,
-      processed_at:       w.processedAt
+      id: w.id,
+      amount: Number(w.amount),
+      fee: Number(w.fee),
+      amount_received: Number(w.amountReceived),
+      destination_bank: w.destinationBank,
+      destination_account: w.destinationAccount,
+      destination_name: w.destinationName,
+      status: w.status,
+      rejection_reason: w.rejectionReason,
+      retry_count: w.retryCount,
+      requested_at: w.requestedAt,
+      processed_at: w.processedAt
     }))
 
     return reply.paginated(mapped, {
@@ -138,7 +138,7 @@ export async function withdrawalRoutes(fastify) {
   }, async (request, reply) => {
     if (request.isImpersonation) return blockIfImpersonation(request, reply)
     const clientId = request.client.id
-    const today    = new Date()
+    const today = new Date()
     today.setHours(0, 0, 0, 0)
 
     // KYC gate untuk penarikan saldo platform berdasarkan total_earned
@@ -149,7 +149,7 @@ export async function withdrawalRoutes(fastify) {
       where: {
         clientId,
         requestedAt: { gte: today },
-        status:      { not: 'rejected' }
+        status: { not: 'rejected' }
       }
     })
 
@@ -186,7 +186,7 @@ export async function withdrawalRoutes(fastify) {
     }
 
     // Generate nonce one-time
-    const nonce    = crypto.randomUUID()
+    const nonce = crypto.randomUUID()
     const nonceKey = `pg:withdraw:nonce:${clientId}`
     await redis.setex(nonceKey, 300, nonce) // TTL 5 menit
 
@@ -201,12 +201,12 @@ export async function withdrawalRoutes(fastify) {
         type: 'object',
         required: ['amount', 'destination_bank', 'destination_account', 'destination_name', 'nonce', 'password'],
         properties: {
-          amount:              { type: 'number', minimum: WITHDRAW.MIN_AMOUNT },  // jumlah yang diterima user
-          destination_bank:    { type: 'string', maxLength: 10 },
+          amount: { type: 'number', minimum: WITHDRAW.MIN_AMOUNT },  // jumlah yang diterima user
+          destination_bank: { type: 'string', maxLength: 50 },
           destination_account: { type: 'string', maxLength: 30 },
-          destination_name:    { type: 'string', maxLength: 100 },
-          nonce:               { type: 'string', minLength: 1 },
-          password:            { type: 'string', minLength: 1 }
+          destination_name: { type: 'string', maxLength: 100 },
+          nonce: { type: 'string', minLength: 1 },
+          password: { type: 'string', minLength: 1 }
         }
       }
     }
@@ -219,7 +219,7 @@ export async function withdrawalRoutes(fastify) {
     if (!await ensureWithdrawalKyc(clientId, reply)) return
 
     // 1. Verifikasi nonce dari Redis — belum dihapus dulu, hapus hanya setelah password valid
-    const nonceKey    = `pg:withdraw:nonce:${clientId}`
+    const nonceKey = `pg:withdraw:nonce:${clientId}`
     const storedNonce = await redis.get(nonceKey)
 
     if (!storedNonce || storedNonce !== nonce) {
@@ -248,8 +248,8 @@ export async function withdrawalRoutes(fastify) {
     const passwordValid = await bcrypt.compare(password, client.passwordHash)
     if (!passwordValid) {
       // Hitung menit sampai tengah malam WIB (UTC+7 = UTC+7)
-      const nowMs       = Date.now()
-      const nowWIB      = new Date(nowMs + 7 * 3600_000)  // shift ke WIB
+      const nowMs = Date.now()
+      const nowWIB = new Date(nowMs + 7 * 3600_000)  // shift ke WIB
       const midnightWIB = new Date(nowWIB)
       midnightWIB.setUTCHours(17, 0, 0, 0)                // 17:00 UTC = 00:00 WIB
       if (midnightWIB.getTime() <= nowMs + 7 * 3600_000) {
@@ -294,7 +294,7 @@ export async function withdrawalRoutes(fastify) {
       where: {
         clientId,
         requestedAt: { gte: today },
-        status:      { not: 'rejected' }
+        status: { not: 'rejected' }
       }
     })
     if (todayWithdrawal) {
@@ -311,7 +311,7 @@ export async function withdrawalRoutes(fastify) {
 
     // 5. Cek balance cukup (harus cukup untuk amount + fee)
     const balance = await db.clientBalance.findUnique({ where: { clientId } })
-    const fee       = WITHDRAW.DEFAULT_FEE
+    const fee = WITHDRAW.DEFAULT_FEE
     const totalDebit = amount + fee   // total yang didebit dari saldo
 
     if (!balance || Number(balance.balanceAvailable) < totalDebit) {
@@ -330,19 +330,19 @@ export async function withdrawalRoutes(fastify) {
       db.withdrawal.create({
         data: {
           clientId,
-          amount:             totalDebit,   // total didebit dari saldo (amount + fee)
+          amount: totalDebit,   // total didebit dari saldo (amount + fee)
           fee,
           amountReceived,                   // yang diterima user
-          destinationBank:    destination_bank.toUpperCase(),
+          destinationBank: destination_bank.toUpperCase(),
           destinationAccount: destination_account,
-          destinationName:    destination_name
+          destinationName: destination_name
         }
       }),
       db.clientBalance.update({
         where: { clientId },
         data: {
           balanceAvailable: { decrement: totalDebit },
-          totalWithdrawn:   { increment: totalDebit }
+          totalWithdrawn: { increment: totalDebit }
         }
       })
     ])
@@ -352,10 +352,10 @@ export async function withdrawalRoutes(fastify) {
       data: {
         clientId,
         withdrawalId: withdrawal.id,
-        type:         'debit_withdraw',
+        type: 'debit_withdraw',
         amount,
-        availableAt:  new Date(),
-        note:         `Withdraw ke ${destination_bank.toUpperCase()} ${destination_account}`
+        availableAt: new Date(),
+        note: `Withdraw ke ${destination_bank.toUpperCase()} ${destination_account}`
       }
     })
 
@@ -368,19 +368,19 @@ export async function withdrawalRoutes(fastify) {
       // Push ke BullMQ flip queue — FlipWorker di scraper proses sequentially
       await flipQueue.add('transfer', {
         withdrawalId: withdrawal.id,
-        triggeredBy:  'auto'
+        triggeredBy: 'auto'
       })
       fastify.log.info(`[Withdrawals] Auto-process: queued withdrawal ${withdrawal.id}`)
     }
 
     return reply.success({
-      id:              withdrawal.id,
-      amount:          Number(withdrawal.amount),
-      fee:             Number(withdrawal.fee),
+      id: withdrawal.id,
+      amount: Number(withdrawal.amount),
+      fee: Number(withdrawal.fee),
       amount_received: Number(withdrawal.amountReceived),
-      status:          withdrawal.status,
-      auto_process:    provider?.autoProcess ?? false,
-      requested_at:    withdrawal.requestedAt
+      status: withdrawal.status,
+      auto_process: provider?.autoProcess ?? false,
+      requested_at: withdrawal.requestedAt
     }, 201)
   })
 }
