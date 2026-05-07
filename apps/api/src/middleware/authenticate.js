@@ -32,7 +32,7 @@ export async function authenticate(request, reply) {
         where: { id: payload.clientId },
         include: {
           subscriptions: {
-            where: { status: 'active' },
+            where: { status: 'active', currentPeriodEnd: { gt: new Date() } },
             include: { plan: true },
             take: 1
           }
@@ -66,7 +66,7 @@ export async function authenticate(request, reply) {
         client: {
           include: {
             subscriptions: {
-              where: { status: 'active' },
+              where: { status: 'active', currentPeriodEnd: { gt: new Date() } },
               include: { plan: true },
               take: 1
             }

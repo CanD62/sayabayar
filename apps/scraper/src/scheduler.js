@@ -232,6 +232,54 @@ export function startScheduler(intervalMs = 5000) {
         console.log(`[Scheduler] ⏰ Auto-expired ${expired.count} invoice(s)`)
       }
 
+      // ── Auto-expire overdue subscriptions ─────────────────
+      // Paid subscriptions past their currentPeriodEnd → expired,
+      // then auto-downgrade to free plan + deactivate own channels.
+      const expiredSubs = await db.clientSubscription.findMany({
+        where: {
+          status: 'active',
+          currentPeriodEnd: { lte: now },
+          plan: { planType: 'subscription' }   // only paid plans (free has 2099 end date)
+        },
+        select: { id: true, clientId: true, plan: { select: { name: true } } }
+      })
+
+      if (expiredSubs.length > 0) {
+        // Expire all overdue subscriptions in bulk
+        await db.clientSubscription.updateMany({
+          where: { id: { in: expiredSubs.map(s => s.id) } },
+          data: { status: 'expired' }
+        })
+
+        // Auto-downgrade each client to free plan + deactivate own channels
+        const freePlan = await db.subscriptionPlan.findFirst({
+          where: { planType: 'free', isActive: true }
+        })
+
+        for (const sub of expiredSubs) {
+          // Create free subscription
+          if (freePlan) {
+            await db.clientSubscription.create({
+              data: {
+                clientId: sub.clientId,
+                planId: freePlan.id,
+                status: 'active',
+                currentPeriodStart: now,
+                currentPeriodEnd: new Date('2099-12-31')
+              }
+            })
+          }
+
+          // Deactivate client's own channels (requires paid plan)
+          const deactivated = await db.paymentChannel.updateMany({
+            where: { clientId: sub.clientId, channelOwner: 'client', isActive: true, deletedAt: null },
+            data: { isActive: false }
+          })
+
+          console.log(`[Scheduler] 📉 Subscription expired: client ${sub.clientId} (${sub.plan.name}) → Free${deactivated.count > 0 ? `, ${deactivated.count} channel(s) deactivated` : ''}`)
+        }
+      }
+
     } catch (error) {
       console.error('[Scheduler] Poll error:', error.message)
     }
